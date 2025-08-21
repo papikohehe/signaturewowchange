@@ -1,29 +1,18 @@
 import io
 import os
-from pathlib import Path
 import streamlit as st
 import fitz  # PyMuPDF
 
 # ---------------- CONFIG ----------------
 PAGE_NUMBER_1BASED = 4
-
 OLD_TEAM  = "People and Organizational Development Team"
 NEW_NAME  = " (นายเจษฎากร สมิทธิอรรถกร)"
 NEW_TITLE = "Chief Executive Officer"
 
-# A Thai-capable TTF (put it in ./fonts/)
-# e.g. fonts/NotoSansThai-Regular.ttf, fonts/THSarabunNew.ttf, or fonts/angsa.ttf
+# A Thai-capable TTF (put in ./fonts/)
 FONT_PATH = "fonts/NotoSansThai-Regular.ttf"
 
-NAME_FONTSIZE  = 12
-TITLE_FONTSIZE = 11
-LINE_HEIGHT    = 1.25
-
-# How far above the English line to place the Thai line (in relation to the English bbox height)
-NAME_ABOVE_FACTOR_TOP  = 1.25   # top edge above
-NAME_ABOVE_FACTOR_BOTTOM = 0.15 # bottom edge above
-
-# Slight padding when redacting the English text
+LINE_HEIGHT = 1.25
 REDACT_PAD_RATIO = 0.12
 
 # --------------- HELPERS ----------------
@@ -41,38 +30,37 @@ def pad_rect(r: fitz.Rect, ratio: float) -> fitz.Rect:
     return fitz.Rect(r.x0 - dx, r.y0 - dy, r.x1 + dx, r.y1 + dy)
 
 def replace_team_with_name_and_title(page, old_team, new_name, new_title,
-                                     font_path, name_size, title_size) -> int:
-    # Find the English anchor
+                                     font_path, name_size, title_size,
+                                     above_top, above_bottom):
     rects = page.search_for(old_team)
     if not rects:
         return 0
 
-    # Redact found English text
     for r in rects:
         page.add_redact_annot(pad_rect(r, REDACT_PAD_RATIO), fill=(1, 1, 1))
     page.apply_redactions()
 
-    # Draw Thai name above, and English title in place
     for r in rects:
-        # Rectangle for Thai name just above the original English bbox
-        # Use proportional vertical shift based on the found rect height so it adapts to different PDFs
         h = r.height
-        name_rect = fitz.Rect(r.x0, r.y0 - h * NAME_ABOVE_FACTOR_TOP,
-                              r.x1, r.y0 - h * NAME_ABOVE_FACTOR_BOTTOM)
+        # Position Thai name relative to found rect
+        name_rect = fitz.Rect(
+            r.x0, r.y0 - h * above_top,
+            r.x1, r.y0 - h * above_bottom
+        )
 
-        # Thai name (centered)
+        # Thai name
         page.insert_textbox(
             name_rect,
             new_name,
             fontsize=name_size,
             fontname="customthai",
-            fontfile=font_path,   # embed Thai-capable font
+            fontfile=font_path,
             color=(0, 0, 0),
-            align=1,              # center
+            align=1,
             lineheight=LINE_HEIGHT
         )
 
-        # English title in place of old text (centered)
+        # English title
         page.insert_textbox(
             r,
             new_title,
@@ -87,18 +75,27 @@ def replace_team_with_name_and_title(page, old_team, new_name, new_title,
 
 # ------------------ UI -------------------
 st.set_page_config(page_title="PDF Anchor Replace (Page 4)", page_icon="📝", layout="centered")
-st.title("PDF Text Replace via Anchor — Page 4")
+st.title("PDF Text Replace via Anchor — Page 4 (Live Preview)")
 
 st.write(
     "This app finds **'People and Organizational Development Team'** on page 4, "
     "replaces it with **'Chief Executive Officer'**, and inserts the Thai name **above** it.\n\n"
-    f"- New Thai line: `{NEW_NAME}`\n"
-    f"- New English line: `{NEW_TITLE}`"
+    "👉 Use sliders to adjust font size and placement, then preview the result live."
 )
 
 ensure_font(FONT_PATH)
 
 uploaded = st.file_uploader("Upload your PDF", type=["pdf"])
+
+# --- Sliders ---
+st.sidebar.header("Adjust Placement & Size")
+NAME_FONTSIZE  = st.sidebar.slider("Thai font size", 8, 14, 10)
+TITLE_FONTSIZE = st.sidebar.slider("English font size", 8, 14, 10)
+NAME_ABOVE_FACTOR_TOP = st.sidebar.slider("Thai position (top factor)", 0.5, 1.5, 0.9, 0.05)
+NAME_ABOVE_FACTOR_BOTTOM = st.sidebar.slider("Thai position (bottom factor)", -0.5, 0.5, -0.1, 0.05)
+
+show_preview = st.checkbox("Show live preview of page 4", value=True)
+
 if uploaded:
     try:
         pdf_bytes = uploaded.read()
@@ -117,35 +114,30 @@ if uploaded:
                 NEW_TITLE,
                 FONT_PATH,
                 NAME_FONTSIZE,
-                TITLE_FONTSIZE
+                TITLE_FONTSIZE,
+                NAME_ABOVE_FACTOR_TOP,
+                NAME_ABOVE_FACTOR_BOTTOM
             )
 
-            out_buf = io.BytesIO()
-            doc.save(out_buf, garbage=4, deflate=True, incremental=False)
-            doc.close()
-            out_buf.seek(0)
-
             if hits == 0:
-                st.warning(
-                    "Could not find the English anchor text on page 4. "
-                    "Check spelling/spaces or confirm it’s on page 4."
-                )
+                st.warning("Could not find the English anchor text on page 4.")
             else:
-                st.success(
-                    f"Done! Replaced English line and inserted Thai name above. Matches on page 4: {hits}"
-                )
+                st.success(f"Applied replacement (matches found: {hits}).")
+
+                if show_preview:
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for clarity
+                    st.image(pix.tobytes("png"), caption="Preview of Page 4")
+
+                out_buf = io.BytesIO()
+                doc.save(out_buf, garbage=4, deflate=True, incremental=False)
+                doc.close()
+                out_buf.seek(0)
+
                 st.download_button(
                     "⬇️ Download updated PDF",
                     data=out_buf,
                     file_name=f"updated_{uploaded.name}",
                     mime="application/pdf"
-                )
-
-            with st.expander("Adjust spacing if needed"):
-                st.write(
-                    "- If the Thai line is too close/far from the title, tweak "
-                    "`NAME_ABOVE_FACTOR_TOP` and `NAME_ABOVE_FACTOR_BOTTOM`.\n"
-                    "- If the redaction clips the old English baseline, increase `REDACT_PAD_RATIO`."
                 )
 
     except Exception as e:
