@@ -34,9 +34,17 @@ def expand_rect_for_font(rect: fitz.Rect, font_size: int, base_size: int = 10) -
     extra = rect.height * (scale_factor - 1) * 1.2
     return fitz.Rect(rect.x0, rect.y0 - extra, rect.x1, rect.y1 + extra)
 
+def safe_expand_rect(r: fitz.Rect, font_size: int) -> fitz.Rect:
+    """Guarantee rect has enough height for text (avoid disappearing when shifted)."""
+    rect = expand_rect_for_font(r, font_size)
+    min_height = font_size * 2  # ensure tall enough
+    if rect.height < min_height:
+        rect = fitz.Rect(rect.x0, rect.y0 - min_height/2, rect.x1, rect.y0 + min_height/2)
+    return rect
+
 def replace_anchor(page, anchor, new_thai, new_en,
                    font_path, name_size, title_size,
-                   above_top, above_bottom):
+                   t_top, t_bottom, e_top, e_bottom):
     rects = page.search_for(anchor)
     if not rects:
         return 0
@@ -47,15 +55,16 @@ def replace_anchor(page, anchor, new_thai, new_en,
 
     for r in rects:
         h = r.height
-        name_rect = fitz.Rect(
-            r.x0, r.y0 - h * above_top,
-            r.x1, r.y0 - h * above_bottom
-        )
-        name_rect = expand_rect_for_font(name_rect, name_size)
 
-        # Thai line
+        # Thai rect
+        thai_rect = fitz.Rect(
+            r.x0, r.y0 - h * t_top,
+            r.x1, r.y0 - h * t_bottom
+        )
+        thai_rect = safe_expand_rect(thai_rect, name_size)
+
         page.insert_textbox(
-            name_rect,
+            thai_rect,
             new_thai,
             fontsize=name_size,
             fontname="customthai",
@@ -65,8 +74,13 @@ def replace_anchor(page, anchor, new_thai, new_en,
             lineheight=LINE_HEIGHT
         )
 
-        # English line (expand too if needed)
-        en_rect = expand_rect_for_font(r, title_size)
+        # English rect
+        en_rect = fitz.Rect(
+            r.x0, r.y0 - h * e_top,
+            r.x1, r.y0 - h * e_bottom
+        )
+        en_rect = safe_expand_rect(en_rect, title_size)
+
         page.insert_textbox(
             en_rect,
             new_en,
@@ -95,8 +109,10 @@ def process_pdf(pdf_bytes, params, return_preview=False):
         params["font_path"],
         params["name_size"],
         params["title_size"],
-        params["above_top"],
-        params["above_bottom"]
+        params["t_top"],
+        params["t_bottom"],
+        params["e_top"],
+        params["e_bottom"]
     )
 
     preview_png = None
@@ -132,7 +148,7 @@ available_fonts = list_fonts()
 if available_fonts:
     default_idx = 0
     for i, f in enumerate(available_fonts):
-        if f.lower() == "angsa1.ttf":  # your preferred default
+        if f.lower() == "angsa1.ttf":  # preferred default
             default_idx = i
             break
     chosen_font = st.sidebar.selectbox("Choose font", available_fonts, index=default_idx)
@@ -142,12 +158,16 @@ else:
     font_path = None
 
 # Font sizes — expanded range
-name_size  = st.sidebar.slider("Thai font size", 8, 40, 14)
-title_size = st.sidebar.slider("English font size", 8, 40, 13)
+name_size  = st.sidebar.slider("Thai font size", 8, 40, 15)
+title_size = st.sidebar.slider("English font size", 8, 40, 15)
 
-# Positioning
-above_top    = st.sidebar.slider("Thai position (top factor)", 0.5, 2.0, 0.95, 0.05)
-above_bottom = st.sidebar.slider("Thai position (bottom factor)", -0.5, 1.0, -0.10, 0.05)
+# Thai positioning
+t_top    = st.sidebar.slider("Thai position (top factor)", 0.5, 2.0, 0.75, 0.05)
+t_bottom = st.sidebar.slider("Thai position (bottom factor)", -0.5, 1.0, 0.10, 0.05)
+
+# English positioning
+e_top    = st.sidebar.slider("English position (top factor)", -0.5, 2.0, 0.0, 0.05)
+e_bottom = st.sidebar.slider("English position (bottom factor)", -0.5, 2.0, 0.0, 0.05)
 
 show_preview = st.checkbox("Show preview (for first file)", value=True)
 
@@ -159,8 +179,10 @@ params = {
     "font_path": font_path,
     "name_size": name_size,
     "title_size": title_size,
-    "above_top": above_top,
-    "above_bottom": above_bottom
+    "t_top": t_top,
+    "t_bottom": t_bottom,
+    "e_top": e_top,
+    "e_bottom": e_bottom
 }
 
 # --- Single file preview ---
