@@ -1,97 +1,104 @@
-import io, os, unicodedata
+import io
+import os
 from pathlib import Path
 import streamlit as st
 import fitz  # PyMuPDF
 
-# ---------- CONFIG ----------
+# ---------------- CONFIG ----------------
 PAGE_NUMBER_1BASED = 4
-OLD_NAME_VARIANTS = [
-    "(นางธนาภรณ์ พลอยวิเศษ )",
-    " (นางธนาภรณ์ พลอยวิเศษ )",
-    "(นางธนาภรณ์ พลอยวิเศษ)",
-    " (นางธนาภรณ์ พลอยวิเศษ)",
-    "（นางธนาภรณ์ พลอยวิเศษ）",       # full-width parens
-    " （นางธนาภรณ์ พลอยวิเศษ）",
-]
+
 OLD_TEAM  = "People and Organizational Development Team"
 NEW_NAME  = " (นายเจษฎากร สมิทธิอรรถกร)"
 NEW_TITLE = "Chief Executive Officer"
 
-# Use a Thai-capable TTF here
-FONT_PATH = "fonts/NotoSansThai-Regular.ttf"  # or "fonts/THSarabunNew.ttf" / "fonts/angsa.ttf"
+# A Thai-capable TTF (put it in ./fonts/)
+# e.g. fonts/NotoSansThai-Regular.ttf, fonts/THSarabunNew.ttf, or fonts/angsa.ttf
+FONT_PATH = "fonts/NotoSansThai-Regular.ttf"
 
 NAME_FONTSIZE  = 12
 TITLE_FONTSIZE = 11
-PADDING_MULTIPLIER = 0.22
-LINE_HEIGHT = 1.25
+LINE_HEIGHT    = 1.25
 
-# ---------- HELPERS ----------
-def ensure_font_exists(path: str):
+# How far above the English line to place the Thai line (in relation to the English bbox height)
+NAME_ABOVE_FACTOR_TOP  = 1.25   # top edge above
+NAME_ABOVE_FACTOR_BOTTOM = 0.15 # bottom edge above
+
+# Slight padding when redacting the English text
+REDACT_PAD_RATIO = 0.12
+
+# --------------- HELPERS ----------------
+def ensure_font(path: str):
     if not os.path.exists(path):
-        st.warning(f"Font not found at '{path}'. Put a Thai-capable .ttf there and update FONT_PATH.")
+        st.warning(
+            f"Font not found at '{path}'. Put a Thai-capable .ttf there and update FONT_PATH."
+        )
     elif not path.lower().endswith(".ttf"):
         st.warning("Your font file should be a .ttf (not .tff).")
 
-def pad_rect(r: fitz.Rect, pad_ratio: float):
-    pad_y = r.height * pad_ratio
-    pad_x = r.width * pad_ratio
-    return fitz.Rect(r.x0 - pad_x, r.y0 - pad_y, r.x1 + pad_x, r.y1 + pad_y)
+def pad_rect(r: fitz.Rect, ratio: float) -> fitz.Rect:
+    dx = r.width * ratio
+    dy = r.height * ratio
+    return fitz.Rect(r.x0 - dx, r.y0 - dy, r.x1 + dx, r.y1 + dy)
 
-def normalize_spaces(s: str) -> str:
-    # Replace NBSP and other odd spaces with normal spaces
-    return s.replace("\u00A0", " ").replace("\u2009", " ").replace("\u202F", " ")
-
-def redact_then_write(page, old_text, new_text, font_path, fontsize):
-    found_rects = page.search_for(old_text)
-    if not found_rects:
+def replace_team_with_name_and_title(page, old_team, new_name, new_title,
+                                     font_path, name_size, title_size) -> int:
+    # Find the English anchor
+    rects = page.search_for(old_team)
+    if not rects:
         return 0
-    for r in found_rects:
-        pr = pad_rect(r, PADDING_MULTIPLIER)
-        page.add_redact_annot(pr, fill=(1, 1, 1))
+
+    # Redact found English text
+    for r in rects:
+        page.add_redact_annot(pad_rect(r, REDACT_PAD_RATIO), fill=(1, 1, 1))
     page.apply_redactions()
-    for r in found_rects:
-        pr = pad_rect(r, PADDING_MULTIPLIER)
+
+    # Draw Thai name above, and English title in place
+    for r in rects:
+        # Rectangle for Thai name just above the original English bbox
+        # Use proportional vertical shift based on the found rect height so it adapts to different PDFs
+        h = r.height
+        name_rect = fitz.Rect(r.x0, r.y0 - h * NAME_ABOVE_FACTOR_TOP,
+                              r.x1, r.y0 - h * NAME_ABOVE_FACTOR_BOTTOM)
+
+        # Thai name (centered)
         page.insert_textbox(
-            pr, new_text,
-            fontsize=fontsize,
+            name_rect,
+            new_name,
+            fontsize=name_size,
             fontname="customthai",
-            fontfile=font_path,   # embeds the Thai font
+            fontfile=font_path,   # embed Thai-capable font
+            color=(0, 0, 0),
+            align=1,              # center
+            lineheight=LINE_HEIGHT
+        )
+
+        # English title in place of old text (centered)
+        page.insert_textbox(
+            r,
+            new_title,
+            fontsize=title_size,
+            fontname="customthai",
+            fontfile=font_path,
             color=(0, 0, 0),
             align=1,
             lineheight=LINE_HEIGHT
         )
-    return len(found_rects)
+    return len(rects)
 
-def try_thai_replacements(page, variants, new_text, font_path, fontsize):
-    # try exact, then normalized-space versions
-    total = 0
-    report = []
-    for v in variants:
-        hits = redact_then_write(page, v, new_text, font_path, fontsize)
-        report.append((v, hits))
-        total += hits
-        if hits == 0:
-            nv = normalize_spaces(v)
-            if nv != v:
-                hits2 = redact_then_write(page, nv, new_text, font_path, fontsize)
-                report.append((f"{nv} [normalized]", hits2))
-                total += hits2
-    return total, report
+# ------------------ UI -------------------
+st.set_page_config(page_title="PDF Anchor Replace (Page 4)", page_icon="📝", layout="centered")
+st.title("PDF Text Replace via Anchor — Page 4")
 
-# ---------- UI ----------
-st.set_page_config(page_title="PDF Text Replacer (Page 4)", page_icon="📝", layout="centered")
-st.title("PDF Text Replacer — Page 4 (Thai-safe)")
-
-ensure_font_exists(FONT_PATH)
 st.write(
-    "I will replace on page 4:\n"
-    f"- Thai name → `{NEW_NAME}`\n"
-    f"- English title → `{NEW_TITLE}`"
+    "This app finds **'People and Organizational Development Team'** on page 4, "
+    "replaces it with **'Chief Executive Officer'**, and inserts the Thai name **above** it.\n\n"
+    f"- New Thai line: `{NEW_NAME}`\n"
+    f"- New English line: `{NEW_TITLE}`"
 )
 
-uploaded = st.file_uploader("Upload your PDF", type=["pdf"])
-show_debug = st.toggle("Show match details", value=True)
+ensure_font(FONT_PATH)
 
+uploaded = st.file_uploader("Upload your PDF", type=["pdf"])
 if uploaded:
     try:
         pdf_bytes = uploaded.read()
@@ -99,40 +106,46 @@ if uploaded:
 
         idx = PAGE_NUMBER_1BASED - 1
         if idx < 0 or idx >= len(doc):
-            st.error(f"PDF has only {len(doc)} pages. Page {PAGE_NUMBER_1BASED} doesn't exist.")
+            st.error(f"PDF has {len(doc)} page(s). Page {PAGE_NUMBER_1BASED} doesn't exist.")
         else:
             page = doc[idx]
 
-            # 1) Thai line (try robust variants)
-            thai_total, details = try_thai_replacements(page, OLD_NAME_VARIANTS, NEW_NAME, FONT_PATH, NAME_FONTSIZE)
+            hits = replace_team_with_name_and_title(
+                page,
+                OLD_TEAM,
+                NEW_NAME,
+                NEW_TITLE,
+                FONT_PATH,
+                NAME_FONTSIZE,
+                TITLE_FONTSIZE
+            )
 
-            # 2) English title
-            title_hits = redact_then_write(page, OLD_TEAM, NEW_TITLE, FONT_PATH, TITLE_FONTSIZE)
-
-            # Save
             out_buf = io.BytesIO()
             doc.save(out_buf, garbage=4, deflate=True, incremental=False)
             doc.close()
             out_buf.seek(0)
 
-            st.success(f"Done. Thai replacements: {thai_total}; English replacements: {title_hits}.")
-            if show_debug:
-                st.caption("Match breakdown (variant → hits):")
-                for v, h in details:
-                    st.code(f"{v} -> {h}")
+            if hits == 0:
+                st.warning(
+                    "Could not find the English anchor text on page 4. "
+                    "Check spelling/spaces or confirm it’s on page 4."
+                )
+            else:
+                st.success(
+                    f"Done! Replaced English line and inserted Thai name above. Matches on page 4: {hits}"
+                )
+                st.download_button(
+                    "⬇️ Download updated PDF",
+                    data=out_buf,
+                    file_name=f"updated_{uploaded.name}",
+                    mime="application/pdf"
+                )
 
-            st.download_button(
-                "⬇️ Download updated PDF",
-                data=out_buf,
-                file_name=f"updated_{uploaded.name}",
-                mime="application/pdf"
-            )
-
-            with st.expander("Still not finding the Thai line?"):
+            with st.expander("Adjust spacing if needed"):
                 st.write(
-                    "- The source PDF may split Thai text into separate spans. In that case, try adding a shorter "
-                    "variant such as `'พลอยวิเศษ'` to OLD_NAME_VARIANTS and it will still replace the same spot.\n"
-                    "- Also ensure your font file is valid and has Thai glyphs (e.g., NotoSansThai, TH Sarabun, Angsana)."
+                    "- If the Thai line is too close/far from the title, tweak "
+                    "`NAME_ABOVE_FACTOR_TOP` and `NAME_ABOVE_FACTOR_BOTTOM`.\n"
+                    "- If the redaction clips the old English baseline, increase `REDACT_PAD_RATIO`."
                 )
 
     except Exception as e:
