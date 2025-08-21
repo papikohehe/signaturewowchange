@@ -16,7 +16,7 @@ try:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 except NameError:
     SCRIPT_DIR = os.getcwd()
-FONT_PATH = os.path.join(SCRIPT_DIR, "fonts", "THSarabunNew-Regular.ttf")
+FONT_PATH = os.path.join(SCRIPT_DIR, "fonts", "Sarabun-Regular.ttf")
 
 
 def replace_text_on_page4(uploaded_file):
