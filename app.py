@@ -9,14 +9,15 @@ REPLACEMENTS = {
     "People and Organizational Development Team": "Chief Executive Officer"
 }
 
-# --- Load Custom Font ---
+# --- Font setup ---
+# Looks for angsa.ttf inside a 'fonts' sub-folder
 FONT_PATH = os.path.join("fonts", "angsa.ttf")
-CUSTOM_FONT_AVAILABLE = os.path.exists(FONT_PATH)
 
 
 def replace_text_on_page4(uploaded_file):
     """
-    Reads an uploaded PDF file, replaces text only on page 4, and returns the modified PDF as bytes.
+    Reads an uploaded PDF file, replaces text only on page 4 with specific fonts
+    and alignments, and returns the modified PDF as bytes.
     """
     try:
         file_bytes = uploaded_file.getvalue()
@@ -26,56 +27,48 @@ def replace_text_on_page4(uploaded_file):
             st.warning(f"'{uploaded_file.name}' has fewer than 4 pages and was skipped.")
             return None
 
-        page = pdf_document[3]  # Page 4
+        page = pdf_document[3]  # Target ONLY page 4
 
-        # If replace_text() exists (PyMuPDF >=1.23), use it
-        if hasattr(page, "replace_text"):
-            for search_text, replace_text in REPLACEMENTS.items():
-                page.replace_text(search_text, replace_text)
-
+        # --- Register the custom Thai font if it exists ---
+        font_is_registered = False
+        if os.path.exists(FONT_PATH):
+            page.insert_font(fontfile=FONT_PATH, fontname="custom-thai")
+            font_is_registered = True
         else:
-            # Manual fallback: search + redact + insert
-            for search_text, replace_text in REPLACEMENTS.items():
-                text_instances = page.search_for(search_text)
+            # Set a flag to show a persistent warning in the UI
+            st.session_state.font_warning = True
 
-                # Apply redactions first (to clear the old text)
-                for inst in text_instances:
-                    page.add_redact_annot(inst, fill=(1, 1, 1))
-                if text_instances:
-                    page.apply_redactions()
+        # --- Use the reliable single-step replacement method ---
+        for search_text, replace_text in REPLACEMENTS.items():
+            
+            # Customize font and alignment for each replacement
+            if "นางธนาภรณ์" in search_text:  # This is the Thai name
+                font_name = "custom-thai" if font_is_registered else "helv"
+                alignment = fitz.TEXT_ALIGN_CENTER
+            else:  # This is the English title
+                font_name = "TNR"  # Times New Roman
+                alignment = fitz.TEXT_ALIGN_LEFT
 
-                # Then insert new text in same boxes
-                for inst in text_instances:
-                    if CUSTOM_FONT_AVAILABLE:
-                        try:
-                            page.insert_textbox(
-                                inst,
-                                replace_text,
-                                fontsize=12,
-                                fontfile=FONT_PATH,  # custom Thai font
-                                align=fitz.TEXT_ALIGN_LEFT
-                            )
-                        except TypeError:
-                            page.insert_textbox(
-                                inst,
-                                replace_text,
-                                fontsize=12,
-                                fontname="helv",  # fallback built-in
-                                align=fitz.TEXT_ALIGN_LEFT
-                            )
-                    else:
-                        page.insert_textbox(
-                            inst,
-                            replace_text,
-                            fontsize=12,
-                            fontname="helv",
-                            align=fitz.TEXT_ALIGN_LEFT
-                        )
+            text_instances = page.search_for(search_text)
+            for inst in text_instances:
+                page.add_redact_annot(
+                    inst,
+                    text=replace_text,
+                    fontname=font_name,
+                    fontsize=11,
+                    align=alignment,
+                    fill=(1, 1, 1),
+                    text_color=(0, 0, 0)
+                )
+        
+        # Apply all scheduled replacements at once
+        page.apply_redactions()
 
-        # Save output
+        # Save the modified PDF to an in-memory stream
         output_stream = BytesIO()
         pdf_document.save(output_stream, garbage=3, deflate=True)
         pdf_document.close()
+        
         output_stream.seek(0)
         return output_stream
 
@@ -95,6 +88,12 @@ The following changes will be applied:
 - **Replaces:** `People and Organizational Development Team` → `Chief Executive Officer`
 """)
 
+# Check for the font file and display a persistent warning if it's missing
+if "font_warning" in st.session_state and st.session_state.font_warning:
+    st.error(f"**Font Not Found:** Please make sure the font file exists at `{FONT_PATH}`. Thai text may not render correctly.")
+    st.session_state.font_warning = False # Reset warning
+
+
 # File Uploader
 uploaded_files = st.file_uploader(
     "Drag and drop your contract PDF files here",
@@ -109,13 +108,14 @@ if st.button("✨ Process Files", type="primary"):
         with st.spinner("Processing... Please wait."):
             cols = st.columns(3)
             col_idx = 0
-
+            
             for uploaded_file in uploaded_files:
+                uploaded_file.seek(0) # Rewind file buffer before processing
                 modified_pdf_stream = replace_text_on_page4(uploaded_file)
-
+                
                 if modified_pdf_stream:
                     new_filename = f"{uploaded_file.name.replace('.pdf', '')}_UPDATED.pdf"
-
+                    
                     with cols[col_idx % 3]:
                         st.download_button(
                             label=f"⬇️ Download {new_filename}",
@@ -124,7 +124,7 @@ if st.button("✨ Process Files", type="primary"):
                             mime="application/pdf"
                         )
                         st.write("")
-
+                    
                     col_idx += 1
         st.success("✅ Processing complete! Your updated files are ready for download above.")
     else:
