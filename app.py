@@ -11,8 +11,7 @@ REPLACEMENTS = {
 def replace_text_on_page4(uploaded_file):
     """
     Reads an uploaded PDF, replaces text on page 4, and returns the modified PDF as bytes.
-    This version uses a built-in CJK (Chinese, Japanese, Korean) font which has
-    broad Unicode support and can often render Thai characters without needing a separate font file.
+    This version uses a valid built-in font ('china-s') to render Thai characters.
     """
     try:
         # Read the file from the upload
@@ -32,8 +31,9 @@ def replace_text_on_page4(uploaded_file):
             
             # Set font and alignment for each specific piece of text
             if "นางธนาภรณ์" in search_text:
-                # For the Thai text, use the built-in CJK font and center it
-                font_name = "cjk" 
+                # For the Thai text, use the 'china-s' font and center it.
+                # This is a valid built-in font with broad character support.
+                font_name = "china-s" 
                 alignment = fitz.TEXT_ALIGN_CENTER
             else:
                 # For the English text, use a standard font and left-align it
