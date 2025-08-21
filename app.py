@@ -11,7 +11,7 @@ REPLACEMENTS = {
 
 # --- Font setup ---
 # The script will look for this font file in the same directory.
-THAI_FONT_PATH = "THSarabunNew.ttf"
+THAI_FONT_PATH = "angsa.ttf"
 
 
 def replace_text_on_page4(uploaded_file):
