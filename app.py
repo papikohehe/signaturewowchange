@@ -34,6 +34,14 @@ def expand_rect_for_font(rect: fitz.Rect, font_size: int, base_size: int = 10) -
     extra = rect.height * (scale_factor - 1) * 1.2
     return fitz.Rect(rect.x0, rect.y0 - extra, rect.x1, rect.y1 + extra)
 
+def safe_expand_rect(r: fitz.Rect, font_size: int) -> fitz.Rect:
+    """Guarantee rect has enough height for text (avoid disappearing when shifted)."""
+    rect = expand_rect_for_font(r, font_size)
+    min_height = font_size * 2  # ensure tall enough
+    if rect.height < min_height:
+        rect = fitz.Rect(rect.x0, rect.y0 - min_height/2, rect.x1, rect.y0 + min_height/2)
+    return rect
+
 def replace_anchor(page, anchor, new_thai, new_en,
                    font_path, name_size, title_size,
                    t_top, t_bottom, e_top, e_bottom):
@@ -53,7 +61,7 @@ def replace_anchor(page, anchor, new_thai, new_en,
             r.x0, r.y0 - h * t_top,
             r.x1, r.y0 - h * t_bottom
         )
-        thai_rect = expand_rect_for_font(thai_rect, name_size)
+        thai_rect = safe_expand_rect(thai_rect, name_size)
 
         page.insert_textbox(
             thai_rect,
@@ -71,7 +79,7 @@ def replace_anchor(page, anchor, new_thai, new_en,
             r.x0, r.y0 - h * e_top,
             r.x1, r.y0 - h * e_bottom
         )
-        en_rect = expand_rect_for_font(en_rect, title_size)
+        en_rect = safe_expand_rect(en_rect, title_size)
 
         page.insert_textbox(
             en_rect,
@@ -140,7 +148,7 @@ available_fonts = list_fonts()
 if available_fonts:
     default_idx = 0
     for i, f in enumerate(available_fonts):
-        if f.lower() == "angsa1.ttf":  # your preferred default
+        if f.lower() == "angsa1.ttf":  # preferred default
             default_idx = i
             break
     chosen_font = st.sidebar.selectbox("Choose font", available_fonts, index=default_idx)
