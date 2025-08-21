@@ -3,7 +3,6 @@ import fitz  # PyMuPDF
 from io import BytesIO
 
 # --- Configuration: Define the text replacements ---
-# This dictionary holds the text to find (key) and the text to replace it with (value).
 REPLACEMENTS = {
     "นางธนาภรณ์ พลอยวิเศษ": "นายเจษฎากร สมิทธิอรรถกร",
     "People and Organizational Development Team": "Chief Executive Officer"
@@ -12,19 +11,11 @@ REPLACEMENTS = {
 def replace_text_on_page4(uploaded_file):
     """
     Reads an uploaded PDF file, replaces text only on page 4, and returns the modified PDF as bytes.
-
-    Args:
-        uploaded_file: A Streamlit UploadedFile object.
-
-    Returns:
-        A BytesIO stream containing the modified PDF, or None if the PDF has fewer than 4 pages.
     """
     try:
-        # Read the uploaded file's content into bytes
         file_bytes = uploaded_file.getvalue()
         pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
 
-        # Check if the document has at least 4 pages
         if len(pdf_document) < 4:
             st.warning(f"'{uploaded_file.name}' has fewer than 4 pages and was skipped.")
             return None
@@ -37,24 +28,27 @@ def replace_text_on_page4(uploaded_file):
             text_instances = page.search_for(search_text)
 
             for inst in text_instances:
-                # Add a redaction to cover the old text with a white box
-                page.add_redact_annot(inst, fill=(1, 1, 1))
-
-                # Insert the new text at the same position
-                page.insert_text(inst.tl,  # .tl is the top-left corner of the instance
-                                 replace_text,
-                                 fontsize=11,
-                                 fontname="helv")
-
-        # Apply the redactions to finalize the changes
+                # --- THIS IS THE CORRECTED LOGIC ---
+                # Use a single redaction annotation that both removes the old text
+                # and inserts the new text in the same operation.
+                page.add_redact_annot(
+                    inst,                           # The area of the old text
+                    text=replace_text,              # The new text to write
+                    fontname="helv",                # Font for the new text
+                    fontsize=11,                    # Font size for the new text
+                    align=fitz.TEXT_ALIGN_LEFT,     # Align new text to the left
+                    fill=(1, 1, 1),                 # Make the redaction box background white
+                    text_color=(0, 0, 0)            # Make the new text color black
+                )
+        
+        # Apply all scheduled redactions/replacements at once
         page.apply_redactions()
 
-        # Save the modified PDF to an in-memory stream (BytesIO)
+        # Save the modified PDF to an in-memory stream
         output_stream = BytesIO()
         pdf_document.save(output_stream, garbage=3, deflate=True)
         pdf_document.close()
         
-        # Rewind the stream to the beginning so it can be read
         output_stream.seek(0)
         return output_stream
 
@@ -63,7 +57,7 @@ def replace_text_on_page4(uploaded_file):
         return None
 
 
-# --- Streamlit App UI ---
+# --- Streamlit App UI (No changes needed here) ---
 st.set_page_config(layout="wide")
 
 st.title("📄 Contract Signatory Updater")
@@ -74,7 +68,6 @@ The following changes will be applied:
 - **Replaces:** `People and Organizational Development Team` → `Chief Executive Officer`
 """)
 
-# File Uploader
 uploaded_files = st.file_uploader(
     "Drag and drop your contract PDF files here",
     type="pdf",
@@ -86,7 +79,6 @@ st.markdown("---")
 if st.button("✨ Process Files", type="primary"):
     if uploaded_files:
         with st.spinner("Processing... Please wait."):
-            # Create columns for a cleaner layout of download buttons
             cols = st.columns(3)
             col_idx = 0
             
@@ -94,10 +86,8 @@ if st.button("✨ Process Files", type="primary"):
                 modified_pdf_stream = replace_text_on_page4(uploaded_file)
                 
                 if modified_pdf_stream:
-                    # Create a new filename for the updated file
                     new_filename = f"{uploaded_file.name.replace('.pdf', '')}_UPDATED.pdf"
                     
-                    # Display the download button in the next available column
                     with cols[col_idx % 3]:
                         st.download_button(
                             label=f"⬇️ Download {new_filename}",
@@ -105,7 +95,6 @@ if st.button("✨ Process Files", type="primary"):
                             file_name=new_filename,
                             mime="application/pdf"
                         )
-                        # Add some space for better alignment
                         st.write("") 
                     
                     col_idx += 1
