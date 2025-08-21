@@ -9,15 +9,6 @@ REPLACEMENTS = {
 }
 
 def replace_text_on_page4(uploaded_file):
-    """
-    Reads an uploaded PDF file, replaces text only on page 4, and returns the modified PDF as bytes.
-
-    Args:
-        uploaded_file: A Streamlit UploadedFile object.
-
-    Returns:
-        A BytesIO stream containing the modified PDF, or None if the PDF has fewer than 4 pages.
-    """
     try:
         file_bytes = uploaded_file.getvalue()
         pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
@@ -26,14 +17,25 @@ def replace_text_on_page4(uploaded_file):
             st.warning(f"'{uploaded_file.name}' has fewer than 4 pages and was skipped.")
             return None
 
-        # Target ONLY page 4 (index = 3)
-        page = pdf_document[3]
+        page = pdf_document[3]  # Page 4
 
-        # Direct replacement using PyMuPDF's built-in method
         for search_text, replace_text in REPLACEMENTS.items():
-            page.replace_text(search_text, replace_text)
+            text_instances = page.search_for(search_text)
 
-        # Save to BytesIO
+            for inst in text_instances:
+                # White-out the old text
+                page.add_redact_annot(inst, fill=(1, 1, 1))
+                page.apply_redactions()
+
+                # Insert replacement text aligned with original
+                page.insert_textbox(
+                    inst,                      # bounding box of original text
+                    replace_text,
+                    fontsize=11,
+                    fontname="helv",
+                    align=fitz.TEXT_ALIGN_LEFT
+                )
+
         output_stream = BytesIO()
         pdf_document.save(output_stream, garbage=3, deflate=True)
         pdf_document.close()
@@ -43,6 +45,7 @@ def replace_text_on_page4(uploaded_file):
     except Exception as e:
         st.error(f"An error occurred while processing '{uploaded_file.name}': {e}")
         return None
+
 
 
 # --- Streamlit App UI ---
