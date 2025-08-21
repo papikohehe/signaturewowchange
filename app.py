@@ -11,11 +11,7 @@ REPLACEMENTS = {
 
 # --- Load Custom Font ---
 FONT_PATH = os.path.join("fonts", "angsa.ttf")
-try:
-    CUSTOM_FONT = fitz.Font(file=FONT_PATH)
-except Exception as e:
-    CUSTOM_FONT = None
-    st.warning(f"⚠️ Could not load custom font at {FONT_PATH}: {e}. Falling back to built-in Helvetica.")
+CUSTOM_FONT_AVAILABLE = os.path.exists(FONT_PATH)
 
 
 def replace_text_on_page4(uploaded_file):
@@ -30,9 +26,9 @@ def replace_text_on_page4(uploaded_file):
             st.warning(f"'{uploaded_file.name}' has fewer than 4 pages and was skipped.")
             return None
 
-        page = pdf_document[3]  # Page index 3 = page 4
+        page = pdf_document[3]  # Page 4
 
-        # Try PyMuPDF's modern replace_text if available
+        # If replace_text() exists (PyMuPDF >=1.23), use it
         if hasattr(page, "replace_text"):
             for search_text, replace_text in REPLACEMENTS.items():
                 page.replace_text(search_text, replace_text)
@@ -48,15 +44,34 @@ def replace_text_on_page4(uploaded_file):
                     page.apply_redactions()
 
                     # Insert replacement text
-                    page.insert_textbox(
-                        inst,
-                        replace_text,
-                        fontsize=12,
-                        font=CUSTOM_FONT if CUSTOM_FONT else "helv",
-                        align=fitz.TEXT_ALIGN_LEFT
-                    )
+                    if CUSTOM_FONT_AVAILABLE:
+                        try:
+                            page.insert_textbox(
+                                inst,
+                                replace_text,
+                                fontsize=12,
+                                fontfile=FONT_PATH,  # use custom font
+                                align=fitz.TEXT_ALIGN_LEFT
+                            )
+                        except TypeError:
+                            # Older PyMuPDF without fontfile support
+                            page.insert_textbox(
+                                inst,
+                                replace_text,
+                                fontsize=12,
+                                fontname="helv",   # fallback font
+                                align=fitz.TEXT_ALIGN_LEFT
+                            )
+                    else:
+                        page.insert_textbox(
+                            inst,
+                            replace_text,
+                            fontsize=12,
+                            fontname="helv",  # fallback font
+                            align=fitz.TEXT_ALIGN_LEFT
+                        )
 
-        # Save to BytesIO
+        # Save output
         output_stream = BytesIO()
         pdf_document.save(output_stream, garbage=3, deflate=True)
         pdf_document.close()
