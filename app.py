@@ -1,116 +1,126 @@
-import io
-import os
+import io, os, unicodedata
 from pathlib import Path
 import streamlit as st
 import fitz  # PyMuPDF
 
 # ---------- CONFIG ----------
-PAGE_NUMBER_1BASED = 4  # the page the user wants to edit
-OLD_NAME  = " (นางธนาภรณ์ พลอยวิเศษ )"
+PAGE_NUMBER_1BASED = 4
+OLD_NAME_VARIANTS = [
+    "(นางธนาภรณ์ พลอยวิเศษ )",
+    " (นางธนาภรณ์ พลอยวิเศษ )",
+    "(นางธนาภรณ์ พลอยวิเศษ)",
+    " (นางธนาภรณ์ พลอยวิเศษ)",
+    "（นางธนาภรณ์ พลอยวิเศษ）",       # full-width parens
+    " （นางธนาภรณ์ พลอยวิเศษ）",
+]
 OLD_TEAM  = "People and Organizational Development Team"
 NEW_NAME  = " (นายเจษฎากร สมิทธิอรรถกร)"
 NEW_TITLE = "Chief Executive Officer"
 
-# Put your Thai-capable font here (TTF)
-# e.g. fonts/NotoSansThai-Regular.ttf  (recommended)
-FONT_PATH = "fonts/NotoSansThai-Regular.ttf"
+# Use a Thai-capable TTF here
+FONT_PATH = "fonts/NotoSansThai-Regular.ttf"  # or "fonts/THSarabunNew.ttf" / "fonts/angsa.ttf"
 
-# Appearance
 NAME_FONTSIZE  = 12
 TITLE_FONTSIZE = 11
-PADDING_MULTIPLIER = 0.2  # enlarge redaction box slightly for safety
+PADDING_MULTIPLIER = 0.22
 LINE_HEIGHT = 1.25
 
 # ---------- HELPERS ----------
 def ensure_font_exists(path: str):
     if not os.path.exists(path):
-        st.warning(
-            f"Font not found at '{path}'. "
-            "Please put a Thai-capable .ttf in a 'fonts/' folder and update FONT_PATH."
-        )
+        st.warning(f"Font not found at '{path}'. Put a Thai-capable .ttf there and update FONT_PATH.")
+    elif not path.lower().endswith(".ttf"):
+        st.warning("Your font file should be a .ttf (not .tff).")
 
 def pad_rect(r: fitz.Rect, pad_ratio: float):
-    """Expand a rect by a ratio of its height to avoid clipping."""
     pad_y = r.height * pad_ratio
     pad_x = r.width * pad_ratio
     return fitz.Rect(r.x0 - pad_x, r.y0 - pad_y, r.x1 + pad_x, r.y1 + pad_y)
 
+def normalize_spaces(s: str) -> str:
+    # Replace NBSP and other odd spaces with normal spaces
+    return s.replace("\u00A0", " ").replace("\u2009", " ").replace("\u202F", " ")
+
 def redact_then_write(page, old_text, new_text, font_path, fontsize):
-    """
-    - Find all occurrences of old_text on the page
-    - Redact them (white)
-    - Insert new_text centered in the redacted area (wrap if needed)
-    """
     found_rects = page.search_for(old_text)
     if not found_rects:
         return 0
-
-    # Create redactions with a bit of padding
     for r in found_rects:
         pr = pad_rect(r, PADDING_MULTIPLIER)
-        page.add_redact_annot(pr, fill=(1, 1, 1))  # white box
-
-    # Apply all redactions at once
+        page.add_redact_annot(pr, fill=(1, 1, 1))
     page.apply_redactions()
-
-    # Insert new text centered in the original region
     for r in found_rects:
         pr = pad_rect(r, PADDING_MULTIPLIER)
-        # Use fontfile argument to embed the Thai font
         page.insert_textbox(
-            pr,
-            new_text,
+            pr, new_text,
             fontsize=fontsize,
             fontname="customthai",
-            fontfile=font_path,
+            fontfile=font_path,   # embeds the Thai font
             color=(0, 0, 0),
-            align=1,  # 0=left, 1=center, 2=right, 3=justify
+            align=1,
             lineheight=LINE_HEIGHT
         )
     return len(found_rects)
 
+def try_thai_replacements(page, variants, new_text, font_path, fontsize):
+    # try exact, then normalized-space versions
+    total = 0
+    report = []
+    for v in variants:
+        hits = redact_then_write(page, v, new_text, font_path, fontsize)
+        report.append((v, hits))
+        total += hits
+        if hits == 0:
+            nv = normalize_spaces(v)
+            if nv != v:
+                hits2 = redact_then_write(page, nv, new_text, font_path, fontsize)
+                report.append((f"{nv} [normalized]", hits2))
+                total += hits2
+    return total, report
+
 # ---------- UI ----------
 st.set_page_config(page_title="PDF Text Replacer (Page 4)", page_icon="📝", layout="centered")
-st.title("PDF Text Replacer — Page 4")
-
-st.write(
-    "Upload a PDF. The app will **find and replace on page 4**:\n"
-    f"- `{OLD_NAME}` → `{NEW_NAME}`\n"
-    f"- `{OLD_TEAM}` → `{NEW_TITLE}`"
-)
+st.title("PDF Text Replacer — Page 4 (Thai-safe)")
 
 ensure_font_exists(FONT_PATH)
+st.write(
+    "I will replace on page 4:\n"
+    f"- Thai name → `{NEW_NAME}`\n"
+    f"- English title → `{NEW_TITLE}`"
+)
 
 uploaded = st.file_uploader("Upload your PDF", type=["pdf"])
+show_debug = st.toggle("Show match details", value=True)
+
 if uploaded:
     try:
         pdf_bytes = uploaded.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-        # Zero-based index for PyMuPDF
-        target_index = PAGE_NUMBER_1BASED - 1
-        if target_index < 0 or target_index >= len(doc):
+        idx = PAGE_NUMBER_1BASED - 1
+        if idx < 0 or idx >= len(doc):
             st.error(f"PDF has only {len(doc)} pages. Page {PAGE_NUMBER_1BASED} doesn't exist.")
         else:
-            page = doc[target_index]
+            page = doc[idx]
 
-            # First pass: replace the Thai name
-            n1 = redact_then_write(page, OLD_NAME, NEW_NAME, FONT_PATH, NAME_FONTSIZE)
-            # Second pass: replace the English team line
-            n2 = redact_then_write(page, OLD_TEAM, NEW_TITLE, FONT_PATH, TITLE_FONTSIZE)
+            # 1) Thai line (try robust variants)
+            thai_total, details = try_thai_replacements(page, OLD_NAME_VARIANTS, NEW_NAME, FONT_PATH, NAME_FONTSIZE)
 
-            # Save to buffer
+            # 2) English title
+            title_hits = redact_then_write(page, OLD_TEAM, NEW_TITLE, FONT_PATH, TITLE_FONTSIZE)
+
+            # Save
             out_buf = io.BytesIO()
-            # Clean & optimize a bit
             doc.save(out_buf, garbage=4, deflate=True, incremental=False)
             doc.close()
             out_buf.seek(0)
 
-            st.success(
-                f"Done! Replaced occurrences on page {PAGE_NUMBER_1BASED}: "
-                f"{OLD_NAME} → {NEW_NAME}: {n1} match(es); "
-                f"{OLD_TEAM} → {NEW_TITLE}: {n2} match(es)."
-            )
+            st.success(f"Done. Thai replacements: {thai_total}; English replacements: {title_hits}.")
+            if show_debug:
+                st.caption("Match breakdown (variant → hits):")
+                for v, h in details:
+                    st.code(f"{v} -> {h}")
+
             st.download_button(
                 "⬇️ Download updated PDF",
                 data=out_buf,
@@ -118,11 +128,11 @@ if uploaded:
                 mime="application/pdf"
             )
 
-            with st.expander("What if it doesn't line up perfectly?"):
+            with st.expander("Still not finding the Thai line?"):
                 st.write(
-                    "- This uses exact text search. If your source PDF has slightly different spacing or hidden characters, "
-                    "you may need to tweak the `OLD_*` strings (e.g., extra spaces). "
-                    "You can also lower the strictness by normalizing spaces before searching."
+                    "- The source PDF may split Thai text into separate spans. In that case, try adding a shorter "
+                    "variant such as `'พลอยวิเศษ'` to OLD_NAME_VARIANTS and it will still replace the same spot.\n"
+                    "- Also ensure your font file is valid and has Thai glyphs (e.g., NotoSansThai, TH Sarabun, Angsana)."
                 )
 
     except Exception as e:
