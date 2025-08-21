@@ -1,5 +1,6 @@
 import io
 import os
+import zipfile
 import streamlit as st
 import fitz  # PyMuPDF
 
@@ -74,7 +75,7 @@ def process_pdf(pdf_bytes, params, return_preview=False):
         return None, None
 
     page = doc[idx]
-    hits = replace_anchor(
+    _ = replace_anchor(
         page,
         params["anchor"],
         params["thai"],
@@ -86,26 +87,28 @@ def process_pdf(pdf_bytes, params, return_preview=False):
         params["above_bottom"]
     )
 
+    preview_png = None
+    if return_preview:
+        preview_png = page.get_pixmap(matrix=fitz.Matrix(2, 2)).tobytes("png")
+
     out_buf = io.BytesIO()
     doc.save(out_buf, garbage=4, deflate=True, incremental=False)
     doc.close()
     out_buf.seek(0)
 
-    preview_png = None
-    if return_preview:
-        preview_png = page.get_pixmap(matrix=fitz.Matrix(2, 2)).tobytes("png")
     return out_buf, preview_png
 
 # ------------------ UI -------------------
 st.set_page_config(page_title="Bulk PDF Text Replace", page_icon="📝", layout="centered")
 st.title("Bulk PDF Text Replace — Page 4")
 
-ensure_font(FONT_PATH)
-
 st.write(
     "1. Upload **one PDF** first → adjust texts, fonts, and placement with preview.\n"
-    "2. Then upload multiple PDFs in bulk → same parameters will be applied to all."
+    "2. Then upload multiple PDFs → same parameters will be applied to all.\n"
+    "3. Download each file or all as a ZIP."
 )
+
+ensure_font(FONT_PATH)
 
 # --- Sidebar controls ---
 st.sidebar.header("Replacement Parameters")
@@ -155,14 +158,28 @@ if uploaded_single:
 uploaded_bulk = st.file_uploader("Step 2: Upload multiple PDFs for bulk processing", type=["pdf"], accept_multiple_files=True)
 if uploaded_bulk:
     st.info(f"Processing {len(uploaded_bulk)} files with the tuned parameters...")
-    for file in uploaded_bulk:
-        out_buf, _ = process_pdf(file.read(), params, return_preview=False)
-        if out_buf:
-            st.download_button(
-                f"⬇️ Download updated {file.name}",
-                data=out_buf,
-                file_name=f"updated_{file.name}",
-                mime="application/pdf"
-            )
-        else:
-            st.error(f"Could not process {file.name}")
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w") as zipf:
+        for file in uploaded_bulk:
+            out_buf, _ = process_pdf(file.read(), params, return_preview=False)
+            if out_buf:
+                # Add to ZIP
+                zipf.writestr(f"updated_{file.name}", out_buf.getvalue())
+                # Individual download button
+                st.download_button(
+                    f"⬇️ Download updated {file.name}",
+                    data=out_buf,
+                    file_name=f"updated_{file.name}",
+                    mime="application/pdf"
+                )
+            else:
+                st.error(f"Could not process {file.name}")
+
+    zip_buf.seek(0)
+    st.download_button(
+        "⬇️ Download ALL as ZIP",
+        data=zip_buf,
+        file_name="updated_pdfs.zip",
+        mime="application/zip"
+    )
