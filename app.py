@@ -9,9 +9,11 @@ REPLACEMENTS = {
     "People and Organizational Development Team": "Chief Executive Officer"
 }
 
-# --- Font setup ---
-# Looks for angsa.ttf inside a 'fonts' sub-folder
-FONT_PATH = os.path.join("fonts", "angsa.ttf")
+# --- ROBUST FONT PATH LOGIC (THIS IS THE FIX) ---
+# Get the absolute path to the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Join it with the relative path to the font file
+FONT_PATH = os.path.join(SCRIPT_DIR, "fonts", "angsa.ttf")
 
 
 def replace_text_on_page4(uploaded_file):
@@ -90,7 +92,7 @@ The following changes will be applied:
 
 # Check for the font file and display a persistent warning if it's missing
 if "font_warning" in st.session_state and st.session_state.font_warning:
-    st.error(f"**Font Not Found:** Please make sure the font file exists at `{FONT_PATH}`. Thai text may not render correctly.")
+    st.error(f"**Font Not Found:** Could not find the font file at the expected path: `{FONT_PATH}`. Thai text may not render correctly.")
     st.session_state.font_warning = False # Reset warning
 
 
