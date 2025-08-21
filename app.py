@@ -6,8 +6,6 @@ import fitz  # PyMuPDF
 # ---------------- CONFIG ----------------
 PAGE_NUMBER_1BASED = 4
 OLD_TEAM  = "People and Organizational Development Team"
-NEW_NAME  = " (นายเจษฎากร สมิทธิอรรถกร)"
-NEW_TITLE = "Chief Executive Officer"
 
 # A Thai-capable TTF (put in ./fonts/)
 FONT_PATH = "fonts/NotoSansThai-Regular.ttf"
@@ -75,22 +73,30 @@ def replace_team_with_name_and_title(page, old_team, new_name, new_title,
 
 # ------------------ UI -------------------
 st.set_page_config(page_title="PDF Anchor Replace (Page 4)", page_icon="📝", layout="centered")
-st.title("PDF Text Replace via Anchor — Page 4 (Live Preview)")
+st.title("PDF Text Replace via Anchor — Page 4 (Live Preview + Editable Text)")
 
 st.write(
     "This app finds **'People and Organizational Development Team'** on page 4, "
-    "replaces it with **'Chief Executive Officer'**, and inserts the Thai name **above** it.\n\n"
-    "👉 Use sliders to adjust font size and placement, then preview the result live."
+    "replaces it with your chosen English text, and inserts a Thai name **above** it.\n\n"
+    "👉 Use text inputs + sliders to customize placement, then preview live."
 )
 
 ensure_font(FONT_PATH)
 
 uploaded = st.file_uploader("Upload your PDF", type=["pdf"])
 
-# --- Sliders ---
-st.sidebar.header("Adjust Placement & Size")
+# --- Sidebar controls ---
+st.sidebar.header("Customize Replacement")
+
+# Editable replacement texts
+NEW_NAME  = st.sidebar.text_input("Thai text (above)", " (นายเจษฎากร สมิทธิอรรถกร)")
+NEW_TITLE = st.sidebar.text_input("English text (replace anchor)", "Chief Executive Officer")
+
+# Font sizes
 NAME_FONTSIZE  = st.sidebar.slider("Thai font size", 8, 14, 10)
 TITLE_FONTSIZE = st.sidebar.slider("English font size", 8, 14, 10)
+
+# Positioning
 NAME_ABOVE_FACTOR_TOP = st.sidebar.slider("Thai position (top factor)", 0.5, 1.5, 0.9, 0.05)
 NAME_ABOVE_FACTOR_BOTTOM = st.sidebar.slider("Thai position (bottom factor)", -0.5, 0.5, -0.1, 0.05)
 
