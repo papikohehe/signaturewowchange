@@ -14,6 +14,14 @@ FONTS_DIR = "fonts"
 LINE_HEIGHT = 1.25
 REDACT_PAD_RATIO = 0.12
 
+# Default slider values (from screenshot)
+DEFAULT_THAI_SIZE = 15
+DEFAULT_ENG_SIZE  = 15
+DEFAULT_THAI_TOP = 0.60
+DEFAULT_THAI_BOTTOM = -0.20
+DEFAULT_ENG_TOP = -0.50
+DEFAULT_ENG_BOTTOM = -0.50
+
 # --------------- HELPERS ----------------
 def list_fonts():
     """List available TTF fonts in fonts/ directory."""
@@ -27,7 +35,6 @@ def pad_rect(r: fitz.Rect, ratio: float) -> fitz.Rect:
     return fitz.Rect(r.x0 - dx, r.y0 - dy, r.x1 + dx, r.y1 + dy)
 
 def expand_rect_for_font(rect: fitz.Rect, font_size: int, base_size: int = 10) -> fitz.Rect:
-    """Expand rectangle height depending on font size so text never disappears."""
     scale_factor = font_size / base_size
     if scale_factor <= 1:
         return rect
@@ -35,9 +42,8 @@ def expand_rect_for_font(rect: fitz.Rect, font_size: int, base_size: int = 10) -
     return fitz.Rect(rect.x0, rect.y0 - extra, rect.x1, rect.y1 + extra)
 
 def safe_expand_rect(r: fitz.Rect, font_size: int) -> fitz.Rect:
-    """Guarantee rect has enough height for text (avoid disappearing when shifted)."""
     rect = expand_rect_for_font(r, font_size)
-    min_height = font_size * 2  # ensure tall enough
+    min_height = font_size * 2
     if rect.height < min_height:
         rect = fitz.Rect(rect.x0, rect.y0 - min_height/2, rect.x1, rect.y0 + min_height/2)
     return rect
@@ -56,7 +62,6 @@ def replace_anchor(page, anchor, new_thai, new_en,
     for r in rects:
         h = r.height
 
-        # Thai rect
         thai_rect = fitz.Rect(
             r.x0, r.y0 - h * t_top,
             r.x1, r.y0 - h * t_bottom
@@ -74,7 +79,6 @@ def replace_anchor(page, anchor, new_thai, new_en,
             lineheight=LINE_HEIGHT
         )
 
-        # English rect
         en_rect = fitz.Rect(
             r.x0, r.y0 - h * e_top,
             r.x1, r.y0 - h * e_bottom
@@ -94,7 +98,6 @@ def replace_anchor(page, anchor, new_thai, new_en,
     return len(rects)
 
 def process_pdf(pdf_bytes, params, return_preview=False):
-    """Apply replacement to one PDF and return buffer (+preview if requested)."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     idx = params["page_num"] - 1
     if idx < 0 or idx >= len(doc):
@@ -130,25 +133,17 @@ def process_pdf(pdf_bytes, params, return_preview=False):
 st.set_page_config(page_title="Bulk PDF Text Replace", page_icon="📝", layout="centered")
 st.title("Bulk PDF Text Replace — Page 4")
 
-st.write(
-    "1. Upload **one PDF** first → adjust texts, fonts, and placement with preview.\n"
-    "2. Then upload multiple PDFs → same parameters will be applied to all.\n"
-    "3. Download each file or all as a ZIP."
-)
-
-# --- Sidebar controls ---
 st.sidebar.header("Replacement Parameters")
 
 anchor_text = st.sidebar.text_input("Anchor text (search target)", DEFAULT_ANCHOR)
 thai_text   = st.sidebar.text_input("Thai text (above)", DEFAULT_THAI)
 en_text     = st.sidebar.text_input("English text (replace anchor)", DEFAULT_EN)
 
-# Font selection
 available_fonts = list_fonts()
 if available_fonts:
     default_idx = 0
     for i, f in enumerate(available_fonts):
-        if f.lower() == "angsa1.ttf":  # preferred default
+        if f.lower() == "angsa1.ttf":
             default_idx = i
             break
     chosen_font = st.sidebar.selectbox("Choose font", available_fonts, index=default_idx)
@@ -157,17 +152,14 @@ else:
     st.sidebar.error("No .ttf fonts found in fonts/ directory!")
     font_path = None
 
-# Font sizes — expanded range
-name_size  = st.sidebar.slider("Thai font size", 8, 40, 15)
-title_size = st.sidebar.slider("English font size", 8, 40, 15)
+name_size  = st.sidebar.slider("Thai font size", 8, 40, DEFAULT_THAI_SIZE)
+title_size = st.sidebar.slider("English font size", 8, 40, DEFAULT_ENG_SIZE)
 
-# Thai positioning
-t_top    = st.sidebar.slider("Thai position (top factor)", 0.5, 2.0, 0.75, 0.05)
-t_bottom = st.sidebar.slider("Thai position (bottom factor)", -0.5, 1.0, 0.10, 0.05)
+t_top    = st.sidebar.slider("Thai position (top factor)", 0.5, 2.0, DEFAULT_THAI_TOP, 0.05)
+t_bottom = st.sidebar.slider("Thai position (bottom factor)", -0.5, 1.0, DEFAULT_THAI_BOTTOM, 0.05)
 
-# English positioning
-e_top    = st.sidebar.slider("English position (top factor)", -0.5, 2.0, 0.0, 0.05)
-e_bottom = st.sidebar.slider("English position (bottom factor)", -0.5, 2.0, 0.0, 0.05)
+e_top    = st.sidebar.slider("English position (top factor)", -0.5, 2.0, DEFAULT_ENG_TOP, 0.05)
+e_bottom = st.sidebar.slider("English position (bottom factor)", -0.5, 2.0, DEFAULT_ENG_BOTTOM, 0.05)
 
 show_preview = st.checkbox("Show preview (for first file)", value=True)
 
@@ -185,7 +177,6 @@ params = {
     "e_bottom": e_bottom
 }
 
-# --- Single file preview ---
 uploaded_single = st.file_uploader("Step 1: Upload a single PDF to tune parameters", type=["pdf"])
 if uploaded_single and font_path:
     out_buf, preview_png = process_pdf(uploaded_single.read(), params, return_preview=show_preview)
@@ -202,7 +193,6 @@ if uploaded_single and font_path:
     else:
         st.error("Could not process this PDF.")
 
-# --- Bulk upload ---
 uploaded_bulk = st.file_uploader("Step 2: Upload multiple PDFs for bulk processing", type=["pdf"], accept_multiple_files=True)
 if uploaded_bulk and font_path:
     st.info(f"Processing {len(uploaded_bulk)} files with the tuned parameters...")
@@ -212,9 +202,7 @@ if uploaded_bulk and font_path:
         for file in uploaded_bulk:
             out_buf, _ = process_pdf(file.read(), params, return_preview=False)
             if out_buf:
-                # Add to ZIP
                 zipf.writestr(f"updated_{file.name}", out_buf.getvalue())
-                # Individual download button
                 st.download_button(
                     f"⬇️ Download updated {file.name}",
                     data=out_buf,
