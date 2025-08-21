@@ -1,69 +1,77 @@
 import streamlit as st
 import fitz  # PyMuPDF
 from io import BytesIO
+import os
 
-# --- Configuration: Define the text to be replaced ---
+# --- Configuration: Define the final text replacements ---
+# Note: The parentheses are now included as requested.
 REPLACEMENTS = {
-    "นางธนาภรณ์ พลอยวิเศษ": "นายเจษฎากร สมิทธิอรรถกร",
+    "นางธนาภรณ์ พลอยวิเศษ": "(นายเจษฎากร สมิทธิอรรถกร)",
     "People and Organizational Development Team": "Chief Executive Officer"
 }
 
+# --- Robust Font Path Logic ---
+# This creates a reliable path to the font file, which must exist.
+try:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    SCRIPT_DIR = os.getcwd()
+FONT_PATH = os.path.join(SCRIPT_DIR, "fonts", "THSarabunNew-Regular.ttf")
+
+
 def replace_text_on_page4(uploaded_file):
     """
-    Reads an uploaded PDF, replaces text on page 4, and returns the modified PDF as bytes.
-    This version uses a valid built-in font ('china-s') to render Thai characters.
+    Reads an uploaded PDF, replaces text on page 4 using a dedicated Thai font file,
+    and returns the modified PDF as bytes.
     """
+    # First, check if the required font file actually exists.
+    if not os.path.exists(FONT_PATH):
+        st.error(f"CRITICAL ERROR: The font file is missing! Please ensure 'THSarabunNew-Regular.ttf' is inside a 'fonts' folder.")
+        return None
+
     try:
-        # Read the file from the upload
         file_bytes = uploaded_file.getvalue()
         pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
 
-        # Ensure the PDF has enough pages
         if len(pdf_document) < 4:
             st.warning(f"'{uploaded_file.name}' has fewer than 4 pages and was skipped.")
             return None
 
-        # Target ONLY page 4 (which is at index 3)
         page = pdf_document[3]
 
-        # Loop through the items we need to replace
+        # Register the custom Thai font for use in the document
+        page.insert_font(fontfile=FONT_PATH, fontname="thai-sarabun")
+
         for search_text, replace_text in REPLACEMENTS.items():
             
-            # Set font and alignment for each specific piece of text
+            # Determine font and alignment for each replacement
             if "นางธนาภรณ์" in search_text:
-                # For the Thai text, use the 'china-s' font and center it.
-                # This is a valid built-in font with broad character support.
-                font_name = "china-s" 
+                # Use the custom Thai font for the name
+                font_name = "thai-sarabun"
                 alignment = fitz.TEXT_ALIGN_CENTER
             else:
-                # For the English text, use a standard font and left-align it
-                font_name = "helv"  # Helvetica
-                alignment = fitz.TEXT_ALIGN_LEFT
+                # Use Times New Roman for the English title and center it as requested
+                font_name = "TNR"
+                alignment = fitz.TEXT_ALIGN_CENTER
 
-            # Find all occurrences of the text on the page
             text_instances = page.search_for(search_text)
-
-            # For each occurrence, schedule a replacement
             for inst in text_instances:
                 page.add_redact_annot(
-                    inst,                           # The area of the old text
-                    text=replace_text,              # The new text to write
-                    fontname=font_name,             # The selected font
+                    inst,
+                    text=replace_text,
+                    fontname=font_name,
                     fontsize=11,
                     align=alignment,
-                    fill=(1, 1, 1),                 # Make the background white
-                    text_color=(0, 0, 0)            # Make the text black
+                    fill=(1, 1, 1),
+                    text_color=(0, 0, 0)
                 )
         
-        # Apply all the scheduled replacements at once
         page.apply_redactions()
 
-        # Save the modified PDF to a memory buffer
         output_stream = BytesIO()
         pdf_document.save(output_stream, garbage=3, deflate=True)
         pdf_document.close()
         
-        # Go back to the beginning of the buffer to be ready for download
         output_stream.seek(0)
         return output_stream
 
@@ -74,16 +82,10 @@ def replace_text_on_page4(uploaded_file):
 
 # --- Streamlit Application UI ---
 st.set_page_config(layout="wide")
-
 st.title("📄 Contract Signatory Updater")
 st.write("This tool updates the signatory name and title on **Page 4** of your PDF contract files.")
-st.info(f"""
-The following changes will be applied:
-- **Replaces:** `นางธนาภรณ์ พลอยวิเศษ` → `นายเจษฎากร สมิทธิอรรถกร`
-- **Replaces:** `People and Organizational Development Team` → `Chief Executive Officer`
-""")
 
-# File Uploader for multiple PDFs
+# File Uploader
 uploaded_files = st.file_uploader(
     "Drag and drop your contract PDF files here",
     type="pdf",
@@ -96,19 +98,16 @@ st.markdown("---")
 if st.button("✨ Process Files", type="primary"):
     if uploaded_files:
         with st.spinner("Processing... Please wait."):
-            # Create columns for a tidy layout of download buttons
             cols = st.columns(3)
             col_idx = 0
             
             for uploaded_file in uploaded_files:
-                # Rewind file buffer before processing each file
                 uploaded_file.seek(0)
                 modified_pdf_stream = replace_text_on_page4(uploaded_file)
                 
                 if modified_pdf_stream:
                     new_filename = f"{uploaded_file.name.replace('.pdf', '')}_UPDATED.pdf"
                     
-                    # Display the download button in the next available column
                     with cols[col_idx % 3]:
                         st.download_button(
                             label=f"⬇️ Download {new_filename}",
@@ -116,9 +115,9 @@ if st.button("✨ Process Files", type="primary"):
                             file_name=new_filename,
                             mime="application/pdf"
                         )
-                        st.write("") # Add some space for aesthetics
+                        st.write("")
                     
                     col_idx += 1
-        st.success("✅ Processing complete! Your updated files are ready for download above.")
+        st.success("✅ Processing complete!")
     else:
         st.warning("⚠️ Please upload at least one PDF file to process.")
