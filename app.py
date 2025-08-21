@@ -10,16 +10,16 @@ DEFAULT_ANCHOR = "People and Organizational Development Team"
 DEFAULT_THAI   = "(         นายเจษฎากร สมิทธิอรรถกร        )"
 DEFAULT_EN     = "Chief Executive Officer"
 
-FONT_PATH = "fonts/NotoSansThai-Regular.ttf"
+FONTS_DIR = "fonts"
 LINE_HEIGHT = 1.25
 REDACT_PAD_RATIO = 0.12
 
 # --------------- HELPERS ----------------
-def ensure_font(path: str):
-    if not os.path.exists(path):
-        st.warning(f"Font not found at '{path}'. Put a Thai-capable .ttf there.")
-    elif not path.lower().endswith(".ttf"):
-        st.warning("Font file should be .ttf, not .tff")
+def list_fonts():
+    """List available TTF fonts in fonts/ directory."""
+    if not os.path.exists(FONTS_DIR):
+        return []
+    return [f for f in os.listdir(FONTS_DIR) if f.lower().endswith(".ttf")]
 
 def pad_rect(r: fitz.Rect, ratio: float) -> fitz.Rect:
     dx = r.width * ratio
@@ -44,6 +44,7 @@ def replace_anchor(page, anchor, new_thai, new_en,
             r.x1, r.y0 - h * above_bottom
         )
 
+        # Thai line
         page.insert_textbox(
             name_rect,
             new_thai,
@@ -55,6 +56,7 @@ def replace_anchor(page, anchor, new_thai, new_en,
             lineheight=LINE_HEIGHT
         )
 
+        # English line
         page.insert_textbox(
             r,
             new_en,
@@ -108,8 +110,6 @@ st.write(
     "3. Download each file or all as a ZIP."
 )
 
-ensure_font(FONT_PATH)
-
 # --- Sidebar controls ---
 st.sidebar.header("Replacement Parameters")
 
@@ -117,9 +117,20 @@ anchor_text = st.sidebar.text_input("Anchor text (search target)", DEFAULT_ANCHO
 thai_text   = st.sidebar.text_input("Thai text (above)", DEFAULT_THAI)
 en_text     = st.sidebar.text_input("English text (replace anchor)", DEFAULT_EN)
 
+# Font selection
+available_fonts = list_fonts()
+if available_fonts:
+    chosen_font = st.sidebar.selectbox("Choose font", available_fonts, index=0)
+    font_path = os.path.join(FONTS_DIR, chosen_font)
+else:
+    st.sidebar.error("No .ttf fonts found in fonts/ directory!")
+    font_path = None
+
+# Font sizes
 name_size  = st.sidebar.slider("Thai font size", 8, 14, 10)
 title_size = st.sidebar.slider("English font size", 8, 14, 10)
 
+# Positioning
 above_top    = st.sidebar.slider("Thai position (top factor)", 0.5, 1.5, 0.9, 0.05)
 above_bottom = st.sidebar.slider("Thai position (bottom factor)", -0.5, 0.5, -0.1, 0.05)
 
@@ -130,7 +141,7 @@ params = {
     "anchor": anchor_text,
     "thai": thai_text,
     "en": en_text,
-    "font_path": FONT_PATH,
+    "font_path": font_path,
     "name_size": name_size,
     "title_size": title_size,
     "above_top": above_top,
@@ -139,7 +150,7 @@ params = {
 
 # --- Single file preview ---
 uploaded_single = st.file_uploader("Step 1: Upload a single PDF to tune parameters", type=["pdf"])
-if uploaded_single:
+if uploaded_single and font_path:
     out_buf, preview_png = process_pdf(uploaded_single.read(), params, return_preview=show_preview)
     if out_buf:
         st.success("Applied replacement on this file.")
@@ -156,7 +167,7 @@ if uploaded_single:
 
 # --- Bulk upload ---
 uploaded_bulk = st.file_uploader("Step 2: Upload multiple PDFs for bulk processing", type=["pdf"], accept_multiple_files=True)
-if uploaded_bulk:
+if uploaded_bulk and font_path:
     st.info(f"Processing {len(uploaded_bulk)} files with the tuned parameters...")
 
     zip_buf = io.BytesIO()
