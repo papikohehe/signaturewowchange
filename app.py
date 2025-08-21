@@ -26,6 +26,14 @@ def pad_rect(r: fitz.Rect, ratio: float) -> fitz.Rect:
     dy = r.height * ratio
     return fitz.Rect(r.x0 - dx, r.y0 - dy, r.x1 + dx, r.y1 + dy)
 
+def expand_rect_for_font(rect: fitz.Rect, font_size: int, base_size: int = 10) -> fitz.Rect:
+    """Expand rectangle height depending on font size so text never disappears."""
+    scale_factor = font_size / base_size
+    if scale_factor <= 1:
+        return rect
+    extra = rect.height * (scale_factor - 1) * 1.2
+    return fitz.Rect(rect.x0, rect.y0 - extra, rect.x1, rect.y1 + extra)
+
 def replace_anchor(page, anchor, new_thai, new_en,
                    font_path, name_size, title_size,
                    above_top, above_bottom):
@@ -43,6 +51,7 @@ def replace_anchor(page, anchor, new_thai, new_en,
             r.x0, r.y0 - h * above_top,
             r.x1, r.y0 - h * above_bottom
         )
+        name_rect = expand_rect_for_font(name_rect, name_size)
 
         # Thai line
         page.insert_textbox(
@@ -56,9 +65,10 @@ def replace_anchor(page, anchor, new_thai, new_en,
             lineheight=LINE_HEIGHT
         )
 
-        # English line
+        # English line (expand too if needed)
+        en_rect = expand_rect_for_font(r, title_size)
         page.insert_textbox(
-            r,
+            en_rect,
             new_en,
             fontsize=title_size,
             fontname="customthai",
@@ -120,19 +130,24 @@ en_text     = st.sidebar.text_input("English text (replace anchor)", DEFAULT_EN)
 # Font selection
 available_fonts = list_fonts()
 if available_fonts:
-    chosen_font = st.sidebar.selectbox("Choose font", available_fonts, index=0)
+    default_idx = 0
+    for i, f in enumerate(available_fonts):
+        if f.lower() == "angsa1.ttf":  # your preferred default
+            default_idx = i
+            break
+    chosen_font = st.sidebar.selectbox("Choose font", available_fonts, index=default_idx)
     font_path = os.path.join(FONTS_DIR, chosen_font)
 else:
     st.sidebar.error("No .ttf fonts found in fonts/ directory!")
     font_path = None
 
-# Font sizes
-name_size  = st.sidebar.slider("Thai font size", 8, 14, 10)
-title_size = st.sidebar.slider("English font size", 8, 14, 10)
+# Font sizes — expanded range
+name_size  = st.sidebar.slider("Thai font size", 8, 40, 14)
+title_size = st.sidebar.slider("English font size", 8, 40, 13)
 
 # Positioning
-above_top    = st.sidebar.slider("Thai position (top factor)", 0.5, 1.5, 0.9, 0.05)
-above_bottom = st.sidebar.slider("Thai position (bottom factor)", -0.5, 0.5, -0.1, 0.05)
+above_top    = st.sidebar.slider("Thai position (top factor)", 0.5, 2.0, 0.95, 0.05)
+above_bottom = st.sidebar.slider("Thai position (bottom factor)", -0.5, 1.0, -0.10, 0.05)
 
 show_preview = st.checkbox("Show preview (for first file)", value=True)
 
