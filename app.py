@@ -38,28 +38,29 @@ def replace_text_on_page4(uploaded_file):
             for search_text, replace_text in REPLACEMENTS.items():
                 text_instances = page.search_for(search_text)
 
+                # Apply redactions first (to clear the old text)
                 for inst in text_instances:
-                    # White-out old text
                     page.add_redact_annot(inst, fill=(1, 1, 1))
+                if text_instances:
                     page.apply_redactions()
 
-                    # Insert replacement text
+                # Then insert new text in same boxes
+                for inst in text_instances:
                     if CUSTOM_FONT_AVAILABLE:
                         try:
                             page.insert_textbox(
                                 inst,
                                 replace_text,
                                 fontsize=12,
-                                fontfile=FONT_PATH,  # use custom font
+                                fontfile=FONT_PATH,  # custom Thai font
                                 align=fitz.TEXT_ALIGN_LEFT
                             )
                         except TypeError:
-                            # Older PyMuPDF without fontfile support
                             page.insert_textbox(
                                 inst,
                                 replace_text,
                                 fontsize=12,
-                                fontname="helv",   # fallback font
+                                fontname="helv",  # fallback built-in
                                 align=fitz.TEXT_ALIGN_LEFT
                             )
                     else:
@@ -67,7 +68,7 @@ def replace_text_on_page4(uploaded_file):
                             inst,
                             replace_text,
                             fontsize=12,
-                            fontname="helv",  # fallback font
+                            fontname="helv",
                             align=fitz.TEXT_ALIGN_LEFT
                         )
 
