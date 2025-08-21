@@ -14,6 +14,7 @@ FONTS_DIR = "fonts"
 LINE_HEIGHT = 1.25
 REDACT_PAD_RATIO = 0.12
 
+
 # --------------- HELPERS ----------------
 def list_fonts():
     """List available TTF fonts in fonts/ directory."""
@@ -26,25 +27,8 @@ def pad_rect(r: fitz.Rect, ratio: float) -> fitz.Rect:
     dy = r.height * ratio
     return fitz.Rect(r.x0 - dx, r.y0 - dy, r.x1 + dx, r.y1 + dy)
 
-def expand_rect_for_font(rect: fitz.Rect, font_size: int, base_size: int = 10) -> fitz.Rect:
-    """Expand rectangle height depending on font size so text never disappears."""
-    scale_factor = font_size / base_size
-    if scale_factor <= 1:
-        return rect
-    extra = rect.height * (scale_factor - 1) * 1.2
-    return fitz.Rect(rect.x0, rect.y0 - extra, rect.x1, rect.y1 + extra)
-
-def safe_expand_rect(r: fitz.Rect, font_size: int) -> fitz.Rect:
-    """Guarantee rect has enough height for text (avoid disappearing when shifted)."""
-    rect = expand_rect_for_font(r, font_size)
-    min_height = font_size * 2  # ensure tall enough
-    if rect.height < min_height:
-        rect = fitz.Rect(rect.x0, rect.y0 - min_height/2, rect.x1, rect.y0 + min_height/2)
-    return rect
-
 def replace_anchor(page, anchor, new_thai, new_en,
-                   font_path, name_size, title_size,
-                   t_top, t_bottom, e_top, e_bottom):
+                   font_path, name_size, title_size):
     rects = page.search_for(anchor)
     if not rects:
         return 0
@@ -54,15 +38,13 @@ def replace_anchor(page, anchor, new_thai, new_en,
     page.apply_redactions()
 
     for r in rects:
-        h = r.height
-
-        # Thai rect
+        # Place Thai directly under the anchor line
         thai_rect = fitz.Rect(
-            r.x0, r.y0 - h * t_top,
-            r.x1, r.y0 - h * t_bottom
+            r.x0,
+            r.y1 + 5,
+            r.x1,
+            r.y1 + 5 + name_size * 2.5
         )
-        thai_rect = safe_expand_rect(thai_rect, name_size)
-
         page.insert_textbox(
             thai_rect,
             new_thai,
@@ -74,13 +56,13 @@ def replace_anchor(page, anchor, new_thai, new_en,
             lineheight=LINE_HEIGHT
         )
 
-        # English rect
+        # Place English under Thai
         en_rect = fitz.Rect(
-            r.x0, r.y0 - h * e_top,
-            r.x1, r.y0 - h * e_bottom
+            r.x0,
+            thai_rect.y1 + 2,
+            r.x1,
+            thai_rect.y1 + 2 + title_size * 2.5
         )
-        en_rect = safe_expand_rect(en_rect, title_size)
-
         page.insert_textbox(
             en_rect,
             new_en,
@@ -109,10 +91,6 @@ def process_pdf(pdf_bytes, params, return_preview=False):
         params["font_path"],
         params["name_size"],
         params["title_size"],
-        params["t_top"],
-        params["t_bottom"],
-        params["e_top"],
-        params["e_bottom"]
     )
 
     preview_png = None
@@ -126,14 +104,16 @@ def process_pdf(pdf_bytes, params, return_preview=False):
 
     return out_buf, preview_png
 
+
 # ------------------ UI -------------------
 st.set_page_config(page_title="Bulk PDF Text Replace", page_icon="📝", layout="centered")
 st.title("Bulk PDF Text Replace — Page 4")
 
 st.write(
-    "1. Upload **one PDF** first → adjust texts, fonts, and placement with preview.\n"
-    "2. Then upload multiple PDFs → same parameters will be applied to all.\n"
-    "3. Download each file or all as a ZIP."
+    "This app replaces **People and Organizational Development Team** on page 4 with:\n"
+    "- Thai text (stacked just under the line)\n"
+    "- English text (stacked just under the Thai text)\n\n"
+    "You can change the texts, fonts, and font sizes. Positioning is fixed for a clean layout."
 )
 
 # --- Sidebar controls ---
@@ -141,7 +121,7 @@ st.sidebar.header("Replacement Parameters")
 
 anchor_text = st.sidebar.text_input("Anchor text (search target)", DEFAULT_ANCHOR)
 thai_text   = st.sidebar.text_input("Thai text (above)", DEFAULT_THAI)
-en_text     = st.sidebar.text_input("English text (replace anchor)", DEFAULT_EN)
+en_text     = st.sidebar.text_input("English text (below)", DEFAULT_EN)
 
 # Font selection
 available_fonts = list_fonts()
@@ -157,17 +137,9 @@ else:
     st.sidebar.error("No .ttf fonts found in fonts/ directory!")
     font_path = None
 
-# Font sizes — expanded range
+# Font sizes
 name_size  = st.sidebar.slider("Thai font size", 8, 40, 15)
 title_size = st.sidebar.slider("English font size", 8, 40, 15)
-
-# Thai positioning
-t_top    = st.sidebar.slider("Thai position (top factor)", 0.5, 2.0, 0.75, 0.05)
-t_bottom = st.sidebar.slider("Thai position (bottom factor)", -0.5, 1.0, 0.10, 0.05)
-
-# English positioning
-e_top    = st.sidebar.slider("English position (top factor)", -0.5, 2.0, 0.0, 0.05)
-e_bottom = st.sidebar.slider("English position (bottom factor)", -0.5, 2.0, 0.0, 0.05)
 
 show_preview = st.checkbox("Show preview (for first file)", value=True)
 
@@ -179,10 +151,6 @@ params = {
     "font_path": font_path,
     "name_size": name_size,
     "title_size": title_size,
-    "t_top": t_top,
-    "t_bottom": t_bottom,
-    "e_top": e_top,
-    "e_bottom": e_bottom
 }
 
 # --- Single file preview ---
