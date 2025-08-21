@@ -11,6 +11,12 @@ REPLACEMENTS = {
 def replace_text_on_page4(uploaded_file):
     """
     Reads an uploaded PDF file, replaces text only on page 4, and returns the modified PDF as bytes.
+
+    Args:
+        uploaded_file: A Streamlit UploadedFile object.
+
+    Returns:
+        A BytesIO stream containing the modified PDF, or None if the PDF has fewer than 4 pages.
     """
     try:
         file_bytes = uploaded_file.getvalue()
@@ -20,35 +26,17 @@ def replace_text_on_page4(uploaded_file):
             st.warning(f"'{uploaded_file.name}' has fewer than 4 pages and was skipped.")
             return None
 
-        # --- Target ONLY page 4 (index 3) ---
+        # Target ONLY page 4 (index = 3)
         page = pdf_document[3]
 
-        # Iterate through the replacement mapping
+        # Direct replacement using PyMuPDF's built-in method
         for search_text, replace_text in REPLACEMENTS.items():
-            text_instances = page.search_for(search_text)
+            page.replace_text(search_text, replace_text)
 
-            for inst in text_instances:
-                # --- THIS IS THE CORRECTED LOGIC ---
-                # Use a single redaction annotation that both removes the old text
-                # and inserts the new text in the same operation.
-                page.add_redact_annot(
-                    inst,                           # The area of the old text
-                    text=replace_text,              # The new text to write
-                    fontname="helv",                # Font for the new text
-                    fontsize=11,                    # Font size for the new text
-                    align=fitz.TEXT_ALIGN_LEFT,     # Align new text to the left
-                    fill=(1, 1, 1),                 # Make the redaction box background white
-                    text_color=(0, 0, 0)            # Make the new text color black
-                )
-        
-        # Apply all scheduled redactions/replacements at once
-        page.apply_redactions()
-
-        # Save the modified PDF to an in-memory stream
+        # Save to BytesIO
         output_stream = BytesIO()
         pdf_document.save(output_stream, garbage=3, deflate=True)
         pdf_document.close()
-        
         output_stream.seek(0)
         return output_stream
 
@@ -57,7 +45,7 @@ def replace_text_on_page4(uploaded_file):
         return None
 
 
-# --- Streamlit App UI (No changes needed here) ---
+# --- Streamlit App UI ---
 st.set_page_config(layout="wide")
 
 st.title("📄 Contract Signatory Updater")
@@ -68,6 +56,7 @@ The following changes will be applied:
 - **Replaces:** `People and Organizational Development Team` → `Chief Executive Officer`
 """)
 
+# File Uploader
 uploaded_files = st.file_uploader(
     "Drag and drop your contract PDF files here",
     type="pdf",
@@ -95,10 +84,9 @@ if st.button("✨ Process Files", type="primary"):
                             file_name=new_filename,
                             mime="application/pdf"
                         )
-                        st.write("") 
+                        st.write("")
                     
                     col_idx += 1
         st.success("✅ Processing complete! Your updated files are ready for download above.")
-
     else:
         st.warning("⚠️ Please upload at least one PDF file to process.")
