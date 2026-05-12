@@ -26,30 +26,45 @@ def fill_bottom_witness_name(page, new_name, font_path, font_size, x_offset, y_o
     Does NOT add new parentheses.
     """
 
-   witness_rects = page.search_for("พยาน")
+  def fill_bottom_witness_name(
+    page,
+    new_name,
+    font_path,
+    font_size,
+    x_offset,
+    y_offset,
+    box_width,
+):
+    """
+    Finds all 'พยาน' text on the page.
+    Uses only the bottom-most one.
+    Inserts name below the line.
+    """
 
-if witness_rects:
-    # Use bottom-most พยาน
-    target = max(witness_rects, key=lambda r: r.y0)
+    witness_rects = page.search_for("พยาน")
 
-    name_rect = fitz.Rect(
-        target.x0 - box_width + x_offset,
-        target.y1 + 22 + y_offset,
-        target.x1 + 10 + x_offset,
-        target.y1 + 55 + y_offset,
-    )
+    if witness_rects:
+        # Use bottom-most พยาน
+        target = max(witness_rects, key=lambda r: r.y0)
 
-else:
-    # Fallback fixed position near bottom of page
-    page_width = page.rect.width
-    page_height = page.rect.height
+        name_rect = fitz.Rect(
+            target.x0 - box_width + x_offset,
+            target.y1 + 22 + y_offset,
+            target.x1 + 10 + x_offset,
+            target.y1 + 55 + y_offset,
+        )
 
-    name_rect = fitz.Rect(
-        (page_width / 2) - 180 + x_offset,
-        page_height - 140 + y_offset,
-        (page_width / 2) + 180 + x_offset,
-        page_height - 100 + y_offset,
-    )
+    else:
+        # Fallback fixed position near bottom-center
+        page_width = page.rect.width
+        page_height = page.rect.height
+
+        name_rect = fitz.Rect(
+            (page_width / 2) - 180 + x_offset,
+            page_height - 140 + y_offset,
+            (page_width / 2) + 180 + x_offset,
+            page_height - 100 + y_offset,
+        )
 
     page.insert_textbox(
         name_rect,
