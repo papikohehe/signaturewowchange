@@ -134,8 +134,8 @@ font_size = st.sidebar.slider("Font size", 8, 40, DEFAULT_FONT_SIZE)
 
 st.sidebar.subheader("Position Adjustment")
 
-x_offset = st.sidebar.slider("Move left/right", -200, 200, 0)
-y_offset = st.sidebar.slider("Move up/down", -100, 100, 0)
+x_offset = st.sidebar.slider("Move left/right", -200, 200, 61)
+y_offset = st.sidebar.slider("Move up/down", -100, 100, -19)
 box_width = st.sidebar.slider("Text box width", 100, 500, 330)
 
 show_preview = st.checkbox("Show preview for first file", value=True)
