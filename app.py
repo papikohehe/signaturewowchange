@@ -18,15 +18,7 @@ def list_fonts():
     return [f for f in os.listdir(FONTS_DIR) if f.lower().endswith(".ttf")]
 
 
-def fill_bottom_witness_name(page, new_name, font_path, font_size, x_offset, y_offset, box_width):
-    """
-    Finds all 'พยาน' text on the page.
-    Uses only the bottom-most one.
-    Inserts name inside the existing parentheses below the line.
-    Does NOT add new parentheses.
-    """
-
-  def fill_bottom_witness_name(
+def fill_bottom_witness_name(
     page,
     new_name,
     font_path,
@@ -36,15 +28,13 @@ def fill_bottom_witness_name(page, new_name, font_path, font_size, x_offset, y_o
     box_width,
 ):
     """
-    Finds all 'พยาน' text on the page.
-    Uses only the bottom-most one.
-    Inserts name below the line.
+    Fill bottom-most witness signature area.
     """
 
     witness_rects = page.search_for("พยาน")
 
     if witness_rects:
-        # Use bottom-most พยาน
+        # Bottom-most พยาน
         target = max(witness_rects, key=lambda r: r.y0)
 
         name_rect = fitz.Rect(
@@ -55,7 +45,7 @@ def fill_bottom_witness_name(page, new_name, font_path, font_size, x_offset, y_o
         )
 
     else:
-        # Fallback fixed position near bottom-center
+        # Fallback fixed position
         page_width = page.rect.width
         page_height = page.rect.height
 
@@ -83,6 +73,7 @@ def process_pdf(pdf_bytes, params, return_preview=False):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
     page_index = params["page_num"] - 1
+
     if page_index < 0 or page_index >= len(doc):
         return None, None, 0
 
@@ -99,12 +90,23 @@ def process_pdf(pdf_bytes, params, return_preview=False):
     )
 
     preview_png = None
+
     if return_preview:
-        preview_png = page.get_pixmap(matrix=fitz.Matrix(2, 2)).tobytes("png")
+        preview_png = page.get_pixmap(
+            matrix=fitz.Matrix(2, 2)
+        ).tobytes("png")
 
     out_buf = io.BytesIO()
-    doc.save(out_buf, garbage=4, deflate=True, incremental=False)
+
+    doc.save(
+        out_buf,
+        garbage=4,
+        deflate=True,
+        incremental=False,
+    )
+
     doc.close()
+
     out_buf.seek(0)
 
     return out_buf, preview_png, count
@@ -137,6 +139,7 @@ available_fonts = list_fonts()
 
 if available_fonts:
     default_idx = 0
+
     for i, f in enumerate(available_fonts):
         if f.lower() == "angsa1.ttf":
             default_idx = i
@@ -151,18 +154,45 @@ if available_fonts:
     font_path = os.path.join(FONTS_DIR, chosen_font)
 
 else:
-    st.sidebar.error("No .ttf fonts found in fonts/ folder.")
+    st.sidebar.error(
+        "No .ttf fonts found in fonts/ folder."
+    )
     font_path = None
 
-font_size = st.sidebar.slider("Font size", 8, 40, DEFAULT_FONT_SIZE)
+font_size = st.sidebar.slider(
+    "Font size",
+    8,
+    40,
+    DEFAULT_FONT_SIZE,
+)
 
 st.sidebar.subheader("Position Adjustment")
 
-x_offset = st.sidebar.slider("Move left/right", -200, 200, 61)
-y_offset = st.sidebar.slider("Move up/down", -100, 100, -19)
-box_width = st.sidebar.slider("Text box width", 100, 500, 330)
+x_offset = st.sidebar.slider(
+    "Move left/right",
+    -200,
+    200,
+    61,
+)
 
-show_preview = st.checkbox("Show preview for first file", value=True)
+y_offset = st.sidebar.slider(
+    "Move up/down",
+    -100,
+    100,
+    -19,
+)
+
+box_width = st.sidebar.slider(
+    "Text box width",
+    100,
+    500,
+    330,
+)
+
+show_preview = st.checkbox(
+    "Show preview for first file",
+    value=True,
+)
 
 params = {
     "page_num": page_num,
@@ -180,6 +210,7 @@ uploaded_single = st.file_uploader(
 )
 
 if uploaded_single and font_path:
+
     out_buf, preview_png, count = process_pdf(
         uploaded_single.read(),
         params,
@@ -187,13 +218,16 @@ if uploaded_single and font_path:
     )
 
     if out_buf:
-        st.success(f"Done. Filled {count} bottom witness field.")
 
-        if count == 0:
-            st.warning("No 'พยาน' text found on this page.")
+        st.success(
+            f"Done. Filled {count} bottom witness field."
+        )
 
         if show_preview and preview_png:
-            st.image(preview_png, caption=f"Preview of Page {page_num}")
+            st.image(
+                preview_png,
+                caption=f"Preview of Page {page_num}",
+            )
 
         st.download_button(
             "⬇️ Download updated PDF",
@@ -209,10 +243,13 @@ uploaded_bulk = st.file_uploader(
 )
 
 if uploaded_bulk and font_path:
+
     zip_buf = io.BytesIO()
 
     with zipfile.ZipFile(zip_buf, "w") as zipf:
+
         for file in uploaded_bulk:
+
             out_buf, _, count = process_pdf(
                 file.read(),
                 params,
@@ -220,10 +257,19 @@ if uploaded_bulk and font_path:
             )
 
             if out_buf:
-                zipf.writestr(f"updated_{file.name}", out_buf.getvalue())
-                st.write(f"{file.name}: filled {count} bottom witness field")
+                zipf.writestr(
+                    f"updated_{file.name}",
+                    out_buf.getvalue(),
+                )
+
+                st.write(
+                    f"{file.name}: filled {count} field"
+                )
+
             else:
-                st.error(f"Could not process {file.name}")
+                st.error(
+                    f"Could not process {file.name}"
+                )
 
     zip_buf.seek(0)
 
