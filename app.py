@@ -5,16 +5,11 @@ import streamlit as st
 import fitz  # PyMuPDF
 
 # ---------------- CONFIG ----------------
-PAGE_NUMBER_1BASED = 4
-
+DEFAULT_PAGE_NUMBER = 4
 DEFAULT_NAME = "นางสาวปัณพร ใคยศรี"
 
 FONTS_DIR = "fonts"
 DEFAULT_FONT_SIZE = 16
-
-# Adjust these if text appears too high/low
-Y_OFFSET = 0
-X_OFFSET = 0
 
 # ---------------- HELPERS ----------------
 def list_fonts():
@@ -23,63 +18,41 @@ def list_fonts():
     return [f for f in os.listdir(FONTS_DIR) if f.lower().endswith(".ttf")]
 
 
-def find_parentheses_blanks(page):
+def fill_bottom_witness_name(page, new_name, font_path, font_size, x_offset, y_offset, box_width):
     """
-    Finds blank name fields that look like:
-    (                )
+    Finds all 'พยาน' text on the page.
+    Uses only the bottom-most one.
+    Inserts name inside the existing parentheses below the line.
+    Does NOT add new parentheses.
     """
-    words = page.get_text("words")
-    results = []
 
-    # Search for left and right parentheses
-    lefts = [w for w in words if "(" in w[4]]
-    rights = [w for w in words if ")" in w[4]]
+    witness_rects = page.search_for("พยาน")
 
-    for l in lefts:
-        lx0, ly0, lx1, ly1, _text, *_ = l
-
-        for r in rights:
-            rx0, ry0, rx1, ry1, _text, *_ = r
-
-            # Same line / close vertical position
-            if abs(ly0 - ry0) < 8 and rx0 > lx0:
-                rect = fitz.Rect(lx0, ly0, rx1, ry1)
-                results.append(rect)
-                break
-
-    return results
-
-
-def fill_name_below_witness(page, new_name, font_path, font_size):
-    rects = page.search_for("พยาน")
-
-    if not rects:
+    if not witness_rects:
         return 0
 
-    count = 0
+    # Pick bottom-most witness
+    target = max(witness_rects, key=lambda r: r.y0)
 
-    for r in rects:
-        # Create box below "พยาน"
-        name_rect = fitz.Rect(
-            r.x0 - 230,      # move left
-            r.y1 + 22,       # move down
-            r.x1 + 20,       # right edge
-            r.y1 + 55        # box height
-        )
+    # Name area below signature line / inside existing parentheses
+    name_rect = fitz.Rect(
+        target.x0 - box_width + x_offset,
+        target.y1 + 22 + y_offset,
+        target.x1 + 10 + x_offset,
+        target.y1 + 55 + y_offset,
+    )
 
-        page.insert_textbox(
-            name_rect,
-            f"( {new_name} )",
-            fontsize=font_size,
-            fontname="customthai",
-            fontfile=font_path,
-            color=(0, 0, 0),
-            align=1,
-        )
+    page.insert_textbox(
+        name_rect,
+        new_name,
+        fontsize=font_size,
+        fontname="customthai",
+        fontfile=font_path,
+        color=(0, 0, 0),
+        align=1,
+    )
 
-        count += 1
-
-    return count
+    return 1
 
 
 def process_pdf(pdf_bytes, params, return_preview=False):
@@ -91,12 +64,15 @@ def process_pdf(pdf_bytes, params, return_preview=False):
 
     page = doc[page_index]
 
-    count = fill_name_below_witness(
-    page=page,
-    new_name=params["name"],
-    font_path=params["font_path"],
-    font_size=params["font_size"],
-)
+    count = fill_bottom_witness_name(
+        page=page,
+        new_name=params["name"],
+        font_path=params["font_path"],
+        font_size=params["font_size"],
+        x_offset=params["x_offset"],
+        y_offset=params["y_offset"],
+        box_width=params["box_width"],
+    )
 
     preview_png = None
     if return_preview:
@@ -112,24 +88,24 @@ def process_pdf(pdf_bytes, params, return_preview=False):
 
 # ---------------- UI ----------------
 st.set_page_config(
-    page_title="PDF Blank Name Filler",
+    page_title="PDF Bottom Witness Name Filler",
     page_icon="📝",
     layout="centered",
 )
 
-st.title("PDF Blank Name Filler")
+st.title("PDF Bottom Witness Name Filler")
 
 st.sidebar.header("Settings")
 
 page_num = st.sidebar.number_input(
     "Page number",
     min_value=1,
-    value=PAGE_NUMBER_1BASED,
+    value=DEFAULT_PAGE_NUMBER,
     step=1,
 )
 
 name_text = st.sidebar.text_input(
-    "Name to fill inside parentheses",
+    "Name to fill",
     DEFAULT_NAME,
 )
 
@@ -154,12 +130,13 @@ else:
     st.sidebar.error("No .ttf fonts found in fonts/ folder.")
     font_path = None
 
-font_size = st.sidebar.slider(
-    "Font size",
-    8,
-    40,
-    DEFAULT_FONT_SIZE,
-)
+font_size = st.sidebar.slider("Font size", 8, 40, DEFAULT_FONT_SIZE)
+
+st.sidebar.subheader("Position Adjustment")
+
+x_offset = st.sidebar.slider("Move left/right", -200, 200, 0)
+y_offset = st.sidebar.slider("Move up/down", -100, 100, 0)
+box_width = st.sidebar.slider("Text box width", 100, 500, 330)
 
 show_preview = st.checkbox("Show preview for first file", value=True)
 
@@ -168,6 +145,9 @@ params = {
     "name": name_text,
     "font_path": font_path,
     "font_size": font_size,
+    "x_offset": x_offset,
+    "y_offset": y_offset,
+    "box_width": box_width,
 }
 
 uploaded_single = st.file_uploader(
@@ -183,10 +163,10 @@ if uploaded_single and font_path:
     )
 
     if out_buf:
-        st.success(f"Done. Filled {count} blank field(s).")
+        st.success(f"Done. Filled {count} bottom witness field.")
 
         if count == 0:
-            st.warning("No blank parentheses were found on this page.")
+            st.warning("No 'พยาน' text found on this page.")
 
         if show_preview and preview_png:
             st.image(preview_png, caption=f"Preview of Page {page_num}")
@@ -216,13 +196,8 @@ if uploaded_bulk and font_path:
             )
 
             if out_buf:
-                zipf.writestr(
-                    f"updated_{file.name}",
-                    out_buf.getvalue(),
-                )
-
-                st.write(f"{file.name}: filled {count} blank field(s)")
-
+                zipf.writestr(f"updated_{file.name}", out_buf.getvalue())
+                st.write(f"{file.name}: filled {count} bottom witness field")
             else:
                 st.error(f"Could not process {file.name}")
 
