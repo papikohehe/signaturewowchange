@@ -26,20 +26,29 @@ def fill_bottom_witness_name(page, new_name, font_path, font_size, x_offset, y_o
     Does NOT add new parentheses.
     """
 
-    witness_rects = page.search_for("พยาน")
+   witness_rects = page.search_for("พยาน")
 
-    if not witness_rects:
-        return 0
-
-    # Pick bottom-most witness
+if witness_rects:
+    # Use bottom-most พยาน
     target = max(witness_rects, key=lambda r: r.y0)
 
-    # Name area below signature line / inside existing parentheses
     name_rect = fitz.Rect(
         target.x0 - box_width + x_offset,
         target.y1 + 22 + y_offset,
         target.x1 + 10 + x_offset,
         target.y1 + 55 + y_offset,
+    )
+
+else:
+    # Fallback fixed position near bottom of page
+    page_width = page.rect.width
+    page_height = page.rect.height
+
+    name_rect = fitz.Rect(
+        (page_width / 2) - 180 + x_offset,
+        page_height - 140 + y_offset,
+        (page_width / 2) + 180 + x_offset,
+        page_height - 100 + y_offset,
     )
 
     page.insert_textbox(
