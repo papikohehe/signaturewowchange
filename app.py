@@ -177,9 +177,9 @@ x_offset = st.sidebar.slider(
 
 y_offset = st.sidebar.slider(
     "Move up/down",
-    -100,
+    -300,
     100,
-    -19,
+    200,
 )
 
 box_width = st.sidebar.slider(
