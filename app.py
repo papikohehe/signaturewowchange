@@ -6,117 +6,97 @@ import fitz  # PyMuPDF
 
 # ---------------- CONFIG ----------------
 PAGE_NUMBER_1BASED = 4
-DEFAULT_ANCHOR = "People and Organizational Development Team"
-DEFAULT_THAI   = "(         นายเจษฎากร สมิทธิอรรถกร        )"
-DEFAULT_EN     = "Chief Executive Officer"
+
+DEFAULT_NAME = "นางสาวปัณพร ใคยศรี"
 
 FONTS_DIR = "fonts"
-LINE_HEIGHT = 1.25
-REDACT_PAD_RATIO = 0.12
+DEFAULT_FONT_SIZE = 16
 
-# Default slider values (from screenshot)
-DEFAULT_THAI_SIZE = 15
-DEFAULT_ENG_SIZE  = 15
-DEFAULT_THAI_TOP = 0.60
-DEFAULT_THAI_BOTTOM = -0.20
-DEFAULT_ENG_TOP = -0.50
-DEFAULT_ENG_BOTTOM = -0.50
+# Adjust these if text appears too high/low
+Y_OFFSET = 0
+X_OFFSET = 0
 
-# --------------- HELPERS ----------------
+# ---------------- HELPERS ----------------
 def list_fonts():
-    """List available TTF fonts in fonts/ directory."""
     if not os.path.exists(FONTS_DIR):
         return []
     return [f for f in os.listdir(FONTS_DIR) if f.lower().endswith(".ttf")]
 
-def pad_rect(r: fitz.Rect, ratio: float) -> fitz.Rect:
-    dx = r.width * ratio
-    dy = r.height * ratio
-    return fitz.Rect(r.x0 - dx, r.y0 - dy, r.x1 + dx, r.y1 + dy)
 
-def expand_rect_for_font(rect: fitz.Rect, font_size: int, base_size: int = 10) -> fitz.Rect:
-    scale_factor = font_size / base_size
-    if scale_factor <= 1:
-        return rect
-    extra = rect.height * (scale_factor - 1) * 1.2
-    return fitz.Rect(rect.x0, rect.y0 - extra, rect.x1, rect.y1 + extra)
+def find_parentheses_blanks(page):
+    """
+    Finds blank name fields that look like:
+    (                )
+    """
+    words = page.get_text("words")
+    results = []
 
-def safe_expand_rect(r: fitz.Rect, font_size: int) -> fitz.Rect:
-    rect = expand_rect_for_font(r, font_size)
-    min_height = font_size * 2
-    if rect.height < min_height:
-        rect = fitz.Rect(rect.x0, rect.y0 - min_height/2, rect.x1, rect.y0 + min_height/2)
-    return rect
+    # Search for left and right parentheses
+    lefts = [w for w in words if "(" in w[4]]
+    rights = [w for w in words if ")" in w[4]]
 
-def replace_anchor(page, anchor, new_thai, new_en,
-                   font_path, name_size, title_size,
-                   t_top, t_bottom, e_top, e_bottom):
-    rects = page.search_for(anchor)
+    for l in lefts:
+        lx0, ly0, lx1, ly1, _text, *_ = l
+
+        for r in rights:
+            rx0, ry0, rx1, ry1, _text, *_ = r
+
+            # Same line / close vertical position
+            if abs(ly0 - ry0) < 8 and rx0 > lx0:
+                rect = fitz.Rect(lx0, ly0, rx1, ry1)
+                results.append(rect)
+                break
+
+    return results
+
+
+def fill_name_below_witness(page, new_name, font_path, font_size):
+    rects = page.search_for("พยาน")
+
     if not rects:
         return 0
 
-    for r in rects:
-        page.add_redact_annot(pad_rect(r, REDACT_PAD_RATIO), fill=(1, 1, 1))
-    page.apply_redactions()
+    count = 0
 
     for r in rects:
-        h = r.height
-
-        thai_rect = fitz.Rect(
-            r.x0, r.y0 - h * t_top,
-            r.x1, r.y0 - h * t_bottom
+        # Create box below "พยาน"
+        name_rect = fitz.Rect(
+            r.x0 - 230,      # move left
+            r.y1 + 22,       # move down
+            r.x1 + 20,       # right edge
+            r.y1 + 55        # box height
         )
-        thai_rect = safe_expand_rect(thai_rect, name_size)
 
         page.insert_textbox(
-            thai_rect,
-            new_thai,
-            fontsize=name_size,
+            name_rect,
+            f"( {new_name} )",
+            fontsize=font_size,
             fontname="customthai",
             fontfile=font_path,
             color=(0, 0, 0),
             align=1,
-            lineheight=LINE_HEIGHT
         )
 
-        en_rect = fitz.Rect(
-            r.x0, r.y0 - h * e_top,
-            r.x1, r.y0 - h * e_bottom
-        )
-        en_rect = safe_expand_rect(en_rect, title_size)
+        count += 1
 
-        page.insert_textbox(
-            en_rect,
-            new_en,
-            fontsize=title_size,
-            fontname="customthai",
-            fontfile=font_path,
-            color=(0, 0, 0),
-            align=1,
-            lineheight=LINE_HEIGHT
-        )
-    return len(rects)
+    return count
+
 
 def process_pdf(pdf_bytes, params, return_preview=False):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    idx = params["page_num"] - 1
-    if idx < 0 or idx >= len(doc):
-        return None, None
 
-    page = doc[idx]
-    _ = replace_anchor(
-        page,
-        params["anchor"],
-        params["thai"],
-        params["en"],
-        params["font_path"],
-        params["name_size"],
-        params["title_size"],
-        params["t_top"],
-        params["t_bottom"],
-        params["e_top"],
-        params["e_bottom"]
-    )
+    page_index = params["page_num"] - 1
+    if page_index < 0 or page_index >= len(doc):
+        return None, None, 0
+
+    page = doc[page_index]
+
+    count = fill_name_below_witness(
+    page=page,
+    new_name=params["name"],
+    font_path=params["font_path"],
+    font_size=params["font_size"],
+)
 
     preview_png = None
     if return_preview:
@@ -127,95 +107,130 @@ def process_pdf(pdf_bytes, params, return_preview=False):
     doc.close()
     out_buf.seek(0)
 
-    return out_buf, preview_png
+    return out_buf, preview_png, count
 
-# ------------------ UI -------------------
-st.set_page_config(page_title="Bulk PDF Text Replace", page_icon="📝", layout="centered")
-st.title("Bulk PDF Text Replace — Page 4")
 
-st.sidebar.header("Replacement Parameters")
+# ---------------- UI ----------------
+st.set_page_config(
+    page_title="PDF Blank Name Filler",
+    page_icon="📝",
+    layout="centered",
+)
 
-anchor_text = st.sidebar.text_input("Anchor text (search target)", DEFAULT_ANCHOR)
-thai_text   = st.sidebar.text_input("Thai text (above)", DEFAULT_THAI)
-en_text     = st.sidebar.text_input("English text (replace anchor)", DEFAULT_EN)
+st.title("PDF Blank Name Filler")
+
+st.sidebar.header("Settings")
+
+page_num = st.sidebar.number_input(
+    "Page number",
+    min_value=1,
+    value=PAGE_NUMBER_1BASED,
+    step=1,
+)
+
+name_text = st.sidebar.text_input(
+    "Name to fill inside parentheses",
+    DEFAULT_NAME,
+)
 
 available_fonts = list_fonts()
+
 if available_fonts:
     default_idx = 0
     for i, f in enumerate(available_fonts):
         if f.lower() == "angsa1.ttf":
             default_idx = i
             break
-    chosen_font = st.sidebar.selectbox("Choose font", available_fonts, index=default_idx)
+
+    chosen_font = st.sidebar.selectbox(
+        "Choose font",
+        available_fonts,
+        index=default_idx,
+    )
+
     font_path = os.path.join(FONTS_DIR, chosen_font)
+
 else:
-    st.sidebar.error("No .ttf fonts found in fonts/ directory!")
+    st.sidebar.error("No .ttf fonts found in fonts/ folder.")
     font_path = None
 
-name_size  = st.sidebar.slider("Thai font size", 8, 40, DEFAULT_THAI_SIZE)
-title_size = st.sidebar.slider("English font size", 8, 40, DEFAULT_ENG_SIZE)
+font_size = st.sidebar.slider(
+    "Font size",
+    8,
+    40,
+    DEFAULT_FONT_SIZE,
+)
 
-t_top    = st.sidebar.slider("Thai position (top factor)", 0.5, 2.0, DEFAULT_THAI_TOP, 0.05)
-t_bottom = st.sidebar.slider("Thai position (bottom factor)", -0.5, 1.0, DEFAULT_THAI_BOTTOM, 0.05)
-
-e_top    = st.sidebar.slider("English position (top factor)", -0.5, 2.0, DEFAULT_ENG_TOP, 0.05)
-e_bottom = st.sidebar.slider("English position (bottom factor)", -0.5, 2.0, DEFAULT_ENG_BOTTOM, 0.05)
-
-show_preview = st.checkbox("Show preview (for first file)", value=True)
+show_preview = st.checkbox("Show preview for first file", value=True)
 
 params = {
-    "page_num": PAGE_NUMBER_1BASED,
-    "anchor": anchor_text,
-    "thai": thai_text,
-    "en": en_text,
+    "page_num": page_num,
+    "name": name_text,
     "font_path": font_path,
-    "name_size": name_size,
-    "title_size": title_size,
-    "t_top": t_top,
-    "t_bottom": t_bottom,
-    "e_top": e_top,
-    "e_bottom": e_bottom
+    "font_size": font_size,
 }
 
-uploaded_single = st.file_uploader("Step 1: Upload a single PDF to tune parameters", type=["pdf"])
+uploaded_single = st.file_uploader(
+    "Step 1: Upload single PDF to test",
+    type=["pdf"],
+)
+
 if uploaded_single and font_path:
-    out_buf, preview_png = process_pdf(uploaded_single.read(), params, return_preview=show_preview)
+    out_buf, preview_png, count = process_pdf(
+        uploaded_single.read(),
+        params,
+        return_preview=show_preview,
+    )
+
     if out_buf:
-        st.success("Applied replacement on this file.")
+        st.success(f"Done. Filled {count} blank field(s).")
+
+        if count == 0:
+            st.warning("No blank parentheses were found on this page.")
+
         if show_preview and preview_png:
-            st.image(preview_png, caption="Preview of Page 4")
+            st.image(preview_png, caption=f"Preview of Page {page_num}")
+
         st.download_button(
-            "⬇️ Download updated single PDF",
+            "⬇️ Download updated PDF",
             data=out_buf,
             file_name=f"updated_{uploaded_single.name}",
-            mime="application/pdf"
+            mime="application/pdf",
         )
-    else:
-        st.error("Could not process this PDF.")
 
-uploaded_bulk = st.file_uploader("Step 2: Upload multiple PDFs for bulk processing", type=["pdf"], accept_multiple_files=True)
+uploaded_bulk = st.file_uploader(
+    "Step 2: Upload multiple PDFs",
+    type=["pdf"],
+    accept_multiple_files=True,
+)
+
 if uploaded_bulk and font_path:
-    st.info(f"Processing {len(uploaded_bulk)} files with the tuned parameters...")
-
     zip_buf = io.BytesIO()
+
     with zipfile.ZipFile(zip_buf, "w") as zipf:
         for file in uploaded_bulk:
-            out_buf, _ = process_pdf(file.read(), params, return_preview=False)
+            out_buf, _, count = process_pdf(
+                file.read(),
+                params,
+                return_preview=False,
+            )
+
             if out_buf:
-                zipf.writestr(f"updated_{file.name}", out_buf.getvalue())
-                st.download_button(
-                    f"⬇️ Download updated {file.name}",
-                    data=out_buf,
-                    file_name=f"updated_{file.name}",
-                    mime="application/pdf"
+                zipf.writestr(
+                    f"updated_{file.name}",
+                    out_buf.getvalue(),
                 )
+
+                st.write(f"{file.name}: filled {count} blank field(s)")
+
             else:
                 st.error(f"Could not process {file.name}")
 
     zip_buf.seek(0)
+
     st.download_button(
         "⬇️ Download ALL as ZIP",
         data=zip_buf,
         file_name="updated_pdfs.zip",
-        mime="application/zip"
+        mime="application/zip",
     )
